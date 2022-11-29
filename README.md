@@ -12,7 +12,7 @@
 Run one the of following commands,
 
 ```bash
-conda env create -f environment.yml
+conda env create -f environment.yml -n CrossyRoad
 ```
 
 ```bash
