@@ -72,7 +72,7 @@ class Network(nn.Module):
         Return:
             action -- the action with MAXIMUM probability
         """
-        state = torch.tensor(state, dtype=T.float)
+        state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
         probs = torch.softmax(pi, dim=1)
         dist = torch.Categorical(probs)
