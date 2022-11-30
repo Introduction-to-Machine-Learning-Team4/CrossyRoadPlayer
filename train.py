@@ -4,8 +4,11 @@ NUM_GAMES = 300
 MAX_EP = 5
 
 def train():
-    agent = Agent(60, 5)
-    agent.run()
+    try:
+        agent = Agent(60, 5)
+        agent.run()
+    except:
+        agent.close()
 
 if __name__ == "__main__":
     train()
