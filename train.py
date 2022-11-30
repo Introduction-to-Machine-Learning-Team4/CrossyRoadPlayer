@@ -8,8 +8,9 @@ def train():
         agent = Agent(60, 5)
         agent.run()
     except Exception as e:
-        print(str(e))
         agent.close()
+        raise e
+        
 
 if __name__ == "__main__":
     train()

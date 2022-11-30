@@ -79,7 +79,7 @@ class Network(nn.Module):
         state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
         probs = torch.softmax(pi, dim=1)
-        dist = torch.Categorical(probs)
+        dist = torch.distributions.Categorical(probs)
         action = dist.sample().numpy()[0]
         return action
 
@@ -145,7 +145,7 @@ class Agent:
     def run(self):  
 
         # parallel training
-        [s.start() for s in self.workers]
+        [s.run() for s in self.workers]
         res = []  # record episode reward to plot
         # while True:
             # r = self.res_queue.get()
@@ -153,7 +153,7 @@ class Agent:
             #     res.append(r)
             # else:
             #     break
-        [s.join() for s in self.workers]
+        [s.run() for s in self.workers]
 
 class Worker(mp.Process): 
     """
@@ -191,7 +191,7 @@ class Worker(mp.Process):
 
     def run(self):
         self.l_ep = 0
-        while self.global_network.value < NUM_GAMES:
+        while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
             score = 0
@@ -208,6 +208,7 @@ class Worker(mp.Process):
                 action = self.local_network.take_action(state)
                 # FIXME: not compatible with current unity env., some slight adjustment is needed
                 actionTuple = ActionTuple()
+                # print(type(action), action)
                 actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                 # state_new, reward, done = self.env.set_actions(action) 
                 self.env.set_actions(self.behavior, actionTuple)
@@ -226,8 +227,8 @@ class Worker(mp.Process):
                 self.l_ep += 1
                 self.env.step()
                 # state = state_new
-            # with self.g_ep.get_lock():
-            #     self.g_ep.value += 1
+            with self.g_ep.get_lock():
+                self.g_ep.value += 1
             print(self.name, 'episode ', self.episode_idx.value, f'reward {score}')
 
 
