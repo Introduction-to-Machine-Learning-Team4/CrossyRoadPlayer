@@ -134,10 +134,10 @@ class Agent:
 
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
-        self.global_ep, res_queue = mp.Value('i', 0), mp.Queue()
+        self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count())]
+                                for i in range(mp.cpu_count() - 7)]
         
     def close(self):
         [w.env.close() for w in self.workers]
@@ -145,15 +145,15 @@ class Agent:
     def run(self):  
 
         # parallel training
-        [s.start() for s in self.slave_agents]
+        [s.start() for s in self.workers]
         res = []  # record episode reward to plot
-        while True:
-            r = res_queue.get()
-            if r is not None:
-                res.append(r)
-            else:
-                break
-        [s.join() for s in self.slave_agents]
+        # while True:
+            # r = self.res_queue.get()
+            # if r is not None:
+            #     res.append(r)
+            # else:
+            #     break
+        [s.join() for s in self.workers]
 
 class Worker(mp.Process): 
     """
@@ -170,7 +170,7 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         
         self.name = f'woker {name}'
-        self.env = UnityEnvironment(file_name="v2.1\CRML", seed=1, side_channels=[], worker_id=1)
+        self.env = UnityEnvironment(file_name="v2.1\CRML", seed=1, side_channels=[], worker_id=name)
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
     
@@ -226,8 +226,8 @@ class Worker(mp.Process):
                 self.l_ep += 1
                 self.env.step()
                 # state = state_new
-            with self.g_ep.get_losk():
-                self.g_ep.value += 1
+            # with self.g_ep.get_lock():
+            #     self.g_ep.value += 1
             print(self.name, 'episode ', self.episode_idx.value, f'reward {score}')
 
 

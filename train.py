@@ -7,7 +7,8 @@ def train():
     try:
         agent = Agent(60, 5)
         agent.run()
-    except:
+    except Exception as e:
+        print(str(e))
         agent.close()
 
 if __name__ == "__main__":
