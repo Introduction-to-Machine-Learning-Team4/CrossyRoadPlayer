@@ -131,15 +131,18 @@ class Agent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.global_network = Network(state_dim, action_dim) # global network
-        
-    
-    def run(self):  
+
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, res_queue = mp.Value('i', 0), mp.Queue()
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
                                 for i in range(mp.cpu_count())]
+        
+    def close(self):
+        [w.env.close() for w in self.workers]
+
+    def run(self):  
 
         # parallel training
         [s.start() for s in self.slave_agents]
@@ -167,7 +170,8 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         
         self.name = f'woker {name}'
-        self.env = UnityEnvironment(file_name="v2.1\CRML", seed=1, side_channels=[])
+        self.env = UnityEnvironment(file_name="v2.1\CRML", seed=1, side_channels=[], worker_id=1)
+        self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
     
     def pull(self, global_network):
@@ -181,6 +185,9 @@ class Worker(mp.Process):
         push the hyperparameter from local network to global network (consider gradient) 
         """
         None
+
+    def close(self):
+        self.env.close()
 
     def run(self):
         self.l_ep = 0
