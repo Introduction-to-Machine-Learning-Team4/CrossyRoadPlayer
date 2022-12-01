@@ -23,9 +23,10 @@ class Network(nn.Module):
 
         # Actor
         self.net_actor = nn.Sequential(
+            # nn.Conv2d(state_dim, 30, 3),
             nn.Linear(state_dim, 30),
             nn.ReLU(),
-            nn.Linear(30, action_dim) 
+            nn.Linear(30, action_dim)
         )
 
         # Critic
@@ -156,7 +157,7 @@ class Agent:
                 res.append(r)
             else:
                 break
-        [s.run() for s in self.workers]
+        [s.join() for s in self.workers]
 
 class Worker(mp.Process): 
     """
@@ -173,7 +174,7 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         
         self.name = f'woker {name}'
-        self.env = UnityEnvironment(file_name="v2.1\CRML", seed=1, side_channels=[], worker_id=name)
+        self.env = UnityEnvironment(file_name="Exe\CRML", seed=1, side_channels=[], worker_id=name)
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
     
@@ -213,7 +214,10 @@ class Worker(mp.Process):
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
                     # print(type(action), action)
-                    action = np.asarray([[action]])
+                    if self.l_ep % MAX_EP:
+                        action = np.asarray([[1]])
+                    else:
+                        action = np.asarray([[action]])
                     # print(type(action), action)
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     # state_new, reward, done = self.env.set_actions(action) 
@@ -236,7 +240,10 @@ class Worker(mp.Process):
                 # state = state_new
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            print(self.name, 'episode ', self.g_ep.value, f'reward {score}')
+            print(f'{self.name}, episode , {self.g_ep.value}, reward {score}')
+            # print(f'{self.local_network.states}')
+            # print(f'{self.local_network.actions}')
+            # print(f'{self.local_network.rewards}')
 
 
 if __name__ == '__main__':
