@@ -1,5 +1,6 @@
 import torch
 import torch.multiprocessing as mp
+import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 import torch.nn as nn
@@ -33,6 +34,8 @@ class Network(nn.Module):
             nn.ReLU(),
             nn.Linear(30, 1)
         )
+
+        self.gamma = gamma
        
         self.states  = []
         self.actions = []
@@ -117,7 +120,7 @@ class Network(nn.Module):
         critic_loss = (returns - values) ** 2
 
         probs = torch.softmax(pi, dim=1)
-        dist = torch.Categorical(probs)
+        dist = torch.distributions.Categorical(probs)
         log_probs = dist.log_prob(actions)
         actor_loss = -log_probs*(returns-values)
 
@@ -208,6 +211,8 @@ class Worker(mp.Process):
                 action = self.local_network.take_action(state)
                 # FIXME: not compatible with current unity env., some slight adjustment is needed
                 actionTuple = ActionTuple()
+                # print(type(action), action)
+                action = np.asarray([[action]])
                 # print(type(action), action)
                 actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                 # state_new, reward, done = self.env.set_actions(action) 
