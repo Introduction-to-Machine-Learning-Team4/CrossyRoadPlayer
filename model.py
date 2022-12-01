@@ -17,7 +17,7 @@ class Network(nn.Module):
         * action_dim -- dim of action space 
         * gamma -- discount factor (0.9 or 0.95 recommanded)
         =====================================================
-        TODO: finetune the parameter og these neural networks 
+        TODO: finetune the parameter of these neural networks 
         """
         super().__init__()
 
@@ -25,7 +25,7 @@ class Network(nn.Module):
         self.net_actor = nn.Sequential(
             nn.Linear(state_dim, 30),
             nn.ReLU(),
-            nn.Linear(30, action_dim)
+            nn.Linear(30, action_dim) 
         )
 
         # Critic
@@ -150,12 +150,12 @@ class Agent:
         # parallel training
         [s.run() for s in self.workers]
         res = []  # record episode reward to plot
-        # while True:
-            # r = self.res_queue.get()
-            # if r is not None:
-            #     res.append(r)
-            # else:
-            #     break
+        while True:
+            r = self.res_queue.get()
+            if r is not None:
+                res.append(r)
+            else:
+                break
         [s.run() for s in self.workers]
 
 class Worker(mp.Process): 
@@ -204,19 +204,21 @@ class Worker(mp.Process):
                 step = None
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
+                    state = step.obs ## Unity return
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
-                state = step.obs ## Unity return
-                action = self.local_network.take_action(state)
-                # FIXME: not compatible with current unity env., some slight adjustment is needed
-                actionTuple = ActionTuple()
-                # print(type(action), action)
-                action = np.asarray([[action]])
-                # print(type(action), action)
-                actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
-                # state_new, reward, done = self.env.set_actions(action) 
-                self.env.set_actions(self.behavior, actionTuple)
+                    state = step.obs ## Unity return
+                    action = self.local_network.take_action(state)
+                    # FIXME: not compatible with current unity env., some slight adjustment is needed
+                    actionTuple = ActionTuple()
+                    # print(type(action), action)
+                    action = np.asarray([[action]])
+                    # print(type(action), action)
+                    actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
+                    # state_new, reward, done = self.env.set_actions(action) 
+                    # actionTuple.add_continuous(np.array([[]])) ## please give me a INT in a 2d nparray!!
+                    self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
                 score += reward
                 self.local_network.record(state, action, reward)
@@ -234,7 +236,7 @@ class Worker(mp.Process):
                 # state = state_new
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            print(self.name, 'episode ', self.episode_idx.value, f'reward {score}')
+            print(self.name, 'episode ', self.g_ep.value, f'reward {score}')
 
 
 if __name__ == '__main__':
