@@ -5,7 +5,7 @@ MAX_EP = 5
 
 def train():
     try:
-        agent = Agent(60, 5)
+        agent = Agent(30, 5)
         agent.run()
     except Exception as e:
         agent.close()
