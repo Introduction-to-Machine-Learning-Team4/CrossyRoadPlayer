@@ -147,9 +147,9 @@ class Agent:
         [w.env.close() for w in self.workers]
 
     def run(self):  
-
+    
         # parallel training
-        [s.run() for s in self.workers]
+        [s.start() for s in self.workers]
         res = []  # record episode reward to plot
         while True:
             r = self.res_queue.get()
@@ -174,10 +174,10 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         
         self.name = f'woker {name}'
-        self.env = UnityEnvironment(file_name="Exe\CRML", seed=1, side_channels=[], worker_id=name)
+        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=name)
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
-    
+        
     def pull(self, global_network):
         """
         pull the hyperparameter from global network to local network
@@ -240,7 +240,7 @@ class Worker(mp.Process):
                 # state = state_new
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            print(f'{self.name}, episode , {self.g_ep.value}, reward {score}')
+            print(f'{self.name}, episode {self.g_ep.value}, reward {score}')
             # print(f'{self.local_network.states}')
             # print(f'{self.local_network.actions}')
             # print(f'{self.local_network.rewards}')
