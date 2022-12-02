@@ -5,12 +5,12 @@ from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 import torch.nn as nn
 from shared_adam import SharedAdam
-# from train import 
-NUM_GAMES = 300
+
+NUM_GAMES = 10
 MAX_EP = 5
 
 class Network(nn.Module):
-    def __init__(self, state_dim=60, action_dim=5, gamma=0.95):
+    def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test'):
         """
         Argument:
         * state_dim -- dim of state
@@ -41,6 +41,8 @@ class Network(nn.Module):
         self.states  = []
         self.actions = []
         self.rewards = []
+
+        self.name = name
 
     def forward(self, state): 
         """
@@ -128,13 +130,25 @@ class Network(nn.Module):
         total_loss = (critic_loss + actor_loss).mean()
     
         return total_loss
+    
+    def save(self):
+        torch.save(self.net_actor.state_dict(), f'.\model\{self.name}_actor.pt')
+        torch.save(self.net_critic.state_dict(), f'.\model\{self.name}_critic.pt')
+        with open(f'.\model\{self.name}_actor.txt', 'w') as fh:
+            fh.write("Model's state_dict:\n")
+            for param_tensor in self.net_actor.state_dict():
+                fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
+        with open(f'.\model\{self.name}_critic.txt', 'w') as fh:
+            fh.write("Model's state_dict:\n")
+            for param_tensor in self.net_critic.state_dict():
+                fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
 class Agent:
 
     def __init__(self, state_dim=60, action_dim=5):
         self.state_dim = state_dim
         self.action_dim = action_dim
-        self.global_network = Network(state_dim, action_dim) # global network
+        self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master') # global network
 
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
@@ -149,24 +163,26 @@ class Agent:
     def run(self):  
     
         # parallel training
-        [s.start() for s in self.workers]
-        res = []  # record episode reward to plot
-        while True:
-            r = self.res_queue.get()
-            if r is not None:
-                res.append(r)
-            else:
-                break
-        [s.join() for s in self.workers]
+        [s.run() for s in self.workers]
+        # res = []  # record episode reward to plot
+        # while True:
+        #     r = self.res_queue.get()
+        #     if r is not None:
+        #         res.append(r)
+        #     else:
+        #         break
+        # [s.join() for s in self.workers]
+        [s.close() for s in self.workers]
+    
+    def save(self):
+        self.global_network.save()
 
 class Worker(mp.Process): 
-    """
     
-    """
     def __init__(self, global_network, optimizer, 
             state_dim, action_dim, gamma, global_ep, name):
         super().__init__()
-        self.local_network = Network(state_dim, action_dim)
+        self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}')
         self.global_network = global_network
         self.optimizer = optimizer
         self.g_ep = global_ep       # total episodes so far across all workers
@@ -189,9 +205,6 @@ class Worker(mp.Process):
         push the hyperparameter from local network to global network (consider gradient) 
         """
         None
-
-    def close(self):
-        self.env.close()
 
     def run(self):
         self.l_ep = 0
@@ -241,9 +254,19 @@ class Worker(mp.Process):
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
             print(f'{self.name}, episode {self.g_ep.value}, reward {score}')
-            # print(f'{self.local_network.states}')
-            # print(f'{self.local_network.actions}')
-            # print(f'{self.local_network.rewards}')
+
+    def close(self):
+        """
+        Save the current model and close environment
+        """
+        self.save()
+        self.env.close()
+
+    def save(self):
+        """
+        Save the current model (implicit invoked by calling close())
+        """
+        self.local_network.save()
 
 
 if __name__ == '__main__':
