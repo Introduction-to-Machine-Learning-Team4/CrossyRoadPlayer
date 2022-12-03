@@ -6,7 +6,7 @@ from mlagents_envs.environment import ActionTuple
 import torch.nn as nn
 from shared_adam import SharedAdam
 
-NUM_GAMES = 10
+NUM_GAMES = 30
 MAX_EP = 5
 
 class Network(nn.Module):
@@ -132,6 +132,9 @@ class Network(nn.Module):
         return total_loss
     
     def save(self):
+        """
+        Save the model parameters into .pt & .txt files
+        """
         torch.save(self.net_actor.state_dict(), f'.\model\{self.name}_actor.pt')
         torch.save(self.net_critic.state_dict(), f'.\model\{self.name}_critic.pt')
         with open(f'.\model\{self.name}_actor.txt', 'w') as fh:
@@ -154,30 +157,25 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
-        # self.workers = [Worker(self.global_network, self.opt, 
-        #                     self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-        #                         for i in range(mp.cpu_count() - 7)]
         
     def close(self):
         [w.env.close() for w in self.workers]
 
-    def run(self):  
-        print('lala')
+    def run(self):
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 6)]
+                                for i in range(mp.cpu_count() - 7)]
         # parallel training
         [s.start() for s in self.workers]
-        print('haha')
-        res = []  # record episode reward to plot
+        # res = []  # record episode reward to plot
         # while True:
         #     r = self.res_queue.get()
         #     if r is not None:
         #         res.append(r)
         #     else:
         #         break
-        # [s.join() for s in self.workers]
-        [s.close() for s in self.workers]
+        [s.join() for s in self.workers]
+        [s.save() for s in self.workers]
     
     def save(self):
         self.global_network.save()
@@ -193,12 +191,8 @@ class Worker(mp.Process):
         self.g_ep = global_ep       # total episodes so far across all workers
         self.l_ep = 0
         self.gamma = gamma          # reward discount factor
-        
-        # self.name = f'woker_{name}'
+
         self.name = f'{name}'
-        # self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name))
-        # self.env.reset()
-        # self.behavior = list(self.env.behavior_specs)[0]
         
     def pull(self, global_network):
         """
@@ -213,7 +207,7 @@ class Worker(mp.Process):
         None
 
     def run(self):
-        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name))
+        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
         self.l_ep = 0
@@ -262,18 +256,11 @@ class Worker(mp.Process):
                 # state = state_new
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            print(f'{self.name}, episode {self.g_ep.value}, reward {score}')
-
-    def close(self):
-        """
-        Save the current model and close environment
-        """
-        self.save()
-        # self.env.close()
+            print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
 
     def save(self):
         """
-        Save the current model (implicit invoked by calling close())
+        Save the current model
         """
         self.local_network.save()
 
