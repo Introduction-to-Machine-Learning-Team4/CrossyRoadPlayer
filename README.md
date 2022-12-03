@@ -25,6 +25,6 @@ pip install -r requirements.txt
 
 2. Run the following command under conda prompt
    ```bash
-   python .\train.py
+   python -W ignore .\train.py
    ```
 
