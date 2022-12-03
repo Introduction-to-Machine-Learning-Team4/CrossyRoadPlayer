@@ -6,8 +6,9 @@ MAX_EP = 5
 def train():
     try:
         agent = Agent(30, 5)
-        agent.run()
+        agent.start()
         agent.save()
+        # agent.join()
     except Exception as e:
         agent.close()
         raise e
@@ -15,3 +16,11 @@ def train():
 
 if __name__ == "__main__":
     train()
+    # try:
+    #     agent = Agent(30, 5)
+    #     agent.start()
+    #     # agent.save()
+    #     agent.join()
+    # except Exception as e:
+    #     agent.close()
+    #     raise e

@@ -143,9 +143,10 @@ class Network(nn.Module):
             for param_tensor in self.net_critic.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
-class Agent:
+class Agent(mp.Process):
 
     def __init__(self, state_dim=60, action_dim=5):
+        super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master') # global network
@@ -153,18 +154,22 @@ class Agent:
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
-        self.workers = [Worker(self.global_network, self.opt, 
-                            self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 7)]
+        # self.workers = [Worker(self.global_network, self.opt, 
+        #                     self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
+        #                         for i in range(mp.cpu_count() - 7)]
         
     def close(self):
         [w.env.close() for w in self.workers]
 
     def run(self):  
-    
+        print('lala')
+        self.workers = [Worker(self.global_network, self.opt, 
+                            self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
+                                for i in range(mp.cpu_count() - 6)]
         # parallel training
-        [s.run() for s in self.workers]
-        # res = []  # record episode reward to plot
+        [s.start() for s in self.workers]
+        print('haha')
+        res = []  # record episode reward to plot
         # while True:
         #     r = self.res_queue.get()
         #     if r is not None:
@@ -189,10 +194,11 @@ class Worker(mp.Process):
         self.l_ep = 0
         self.gamma = gamma          # reward discount factor
         
-        self.name = f'woker {name}'
-        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=name)
-        self.env.reset()
-        self.behavior = list(self.env.behavior_specs)[0]
+        # self.name = f'woker_{name}'
+        self.name = f'{name}'
+        # self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name))
+        # self.env.reset()
+        # self.behavior = list(self.env.behavior_specs)[0]
         
     def pull(self, global_network):
         """
@@ -207,6 +213,9 @@ class Worker(mp.Process):
         None
 
     def run(self):
+        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name))
+        self.env.reset()
+        self.behavior = list(self.env.behavior_specs)[0]
         self.l_ep = 0
         while self.g_ep.value < NUM_GAMES:
             done = False
@@ -260,7 +269,7 @@ class Worker(mp.Process):
         Save the current model and close environment
         """
         self.save()
-        self.env.close()
+        # self.env.close()
 
     def save(self):
         """
