@@ -6,14 +6,14 @@ from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 from shared_adam import SharedAdam
 
-NUM_GAMES = 30  # Maximum training episode for master agent
-MAX_EP = 5      # Maximum training episode for slave agent
+NUM_GAMES = 3000  # Maximum training episode for master agent
+MAX_EP = 10      # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
     Neural network components in A3C architecture
     """
-    def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test'):
+    def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test', load=False, path_actor='', path_critic=''):
         """
         Argument:
             state_dim -- dim of state
@@ -40,6 +40,11 @@ class Network(nn.Module):
             nn.ReLU(),
             nn.Linear(30, 1)
         )
+
+        # load models
+        if(load == True):
+            self.net_actor.load_state_dict(torch.load(path_actor))
+            self.net_critic.load_state_dict(torch.load(path_critic))
 
         self.gamma = gamma
        
@@ -157,7 +162,8 @@ class Agent(mp.Process):
         super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
-        self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master') # global network
+        self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master', 
+                path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
 
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
@@ -226,6 +232,7 @@ class Worker(mp.Process):
             self.env.reset()
             score = 0
             self.local_network.reset()
+            self.pull()
             while not done:
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
@@ -240,11 +247,11 @@ class Worker(mp.Process):
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
                     # print(type(action), action)
-                    # if self.l_ep % MAX_EP:
-                    #     action = np.asarray([[1]])
-                    # else:
-                    #     action = np.asarray([[action]])
-                    action = np.asarray([[action]])
+                    if self.l_ep % MAX_EP:
+                        action = np.asarray([[1]])
+                    else:
+                        action = np.asarray([[action]])
+                    # action = np.asarray([[action]])
                     # print(type(action), action)
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     # state_new, reward, done = self.env.set_actions(action) 
