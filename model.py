@@ -1,23 +1,28 @@
 import torch
 import torch.multiprocessing as mp
+import torch.nn as nn
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
-import torch.nn as nn
 from shared_adam import SharedAdam
 
-NUM_GAMES = 30
-MAX_EP = 5
+NUM_GAMES = 30  # Maximum training episode for master agent
+MAX_EP = 5      # Maximum training episode for slave agent
 
 class Network(nn.Module):
+    """
+    Neural network components in A3C architecture
+    """
     def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test'):
         """
         Argument:
-        * state_dim -- dim of state
-        * action_dim -- dim of action space 
-        * gamma -- discount factor (0.9 or 0.95 recommanded)
+            state_dim -- dim of state
+            action_dim -- dim of action space 
+            gamma -- discount factor (0.9 or 0.95 recommanded)
         =====================================================
-        TODO: finetune the parameter of these neural networks 
+        TODO:
+            * finetune the parameter of these neural networks 
+            * try LSTM or CNN 
         """
         super().__init__()
 
@@ -48,7 +53,7 @@ class Network(nn.Module):
         """
         Forward the state into neural networks
         Argument:
-            state
+            state -- input state received from Unity environment 
         Return:
             logits -- probability of each action being taken
             value  -- value of critic
@@ -78,7 +83,7 @@ class Network(nn.Module):
     def take_action(self, state):
         """
         Argument:
-            state
+            state -- input state received from Unity environment 
         Return:
             action -- the action with MAXIMUM probability
         """
@@ -92,8 +97,6 @@ class Network(nn.Module):
     def calc_R(self, done):
         """
         TODO: 
-            This funciton is implemented in trivial way now,
-            one may modify it into some efficient way
         """
         states = torch.tensor(self.states, dtype=torch.float)
         _, v = self.forward(states)
@@ -147,7 +150,9 @@ class Network(nn.Module):
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
 class Agent(mp.Process):
-
+    """
+    Master agent in A3C architecture
+    """
     def __init__(self, state_dim=60, action_dim=5):
         super().__init__()
         self.state_dim = state_dim
@@ -159,29 +164,30 @@ class Agent(mp.Process):
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
         
     def close(self):
+        """
+        Close all slave agent created (debugging usage)
+        """
         [w.env.close() for w in self.workers]
 
     def run(self):
+        """
+        Initilize all slave agents and start parallel training
+        """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 7)]
+                                for i in range(mp.cpu_count() - 0)]
         # parallel training
-        [s.start() for s in self.workers]
-        # res = []  # record episode reward to plot
-        # while True:
-        #     r = self.res_queue.get()
-        #     if r is not None:
-        #         res.append(r)
-        #     else:
-        #         break
-        [s.join() for s in self.workers]
-        [s.save() for s in self.workers]
+        [w.start() for w in self.workers]
+        [w.join() for w in self.workers]
+        [w.save() for w in self.workers]
     
     def save(self):
         self.global_network.save()
 
 class Worker(mp.Process): 
-    
+    """
+    Slave agnet in A3C architecture
+    """
     def __init__(self, global_network, optimizer, 
             state_dim, action_dim, gamma, global_ep, name):
         super().__init__()
@@ -189,24 +195,28 @@ class Worker(mp.Process):
         self.global_network = global_network
         self.optimizer = optimizer
         self.g_ep = global_ep       # total episodes so far across all workers
-        self.l_ep = 0
+        self.l_ep = None
         self.gamma = gamma          # reward discount factor
 
         self.name = f'{name}'
         
-    def pull(self, global_network):
+    def pull(self):
         """
         pull the hyperparameter from global network to local network
         """
-        None
+        self.local_network.load_state_dict(self.global_network.state_dict()) # pull
     
     def push(self):
         """
         push the hyperparameter from local network to global network (consider gradient) 
         """
-        None
+        for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
+            global_param._grad = local_param.grad # push
 
     def run(self):
+        """
+        Initilize Unity environment and start training
+        """
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
@@ -230,10 +240,11 @@ class Worker(mp.Process):
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
                     # print(type(action), action)
-                    if self.l_ep % MAX_EP:
-                        action = np.asarray([[1]])
-                    else:
-                        action = np.asarray([[action]])
+                    # if self.l_ep % MAX_EP:
+                    #     action = np.asarray([[1]])
+                    # else:
+                    #     action = np.asarray([[action]])
+                    action = np.asarray([[action]])
                     # print(type(action), action)
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     # state_new, reward, done = self.env.set_actions(action) 
@@ -246,10 +257,12 @@ class Worker(mp.Process):
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
-                    for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
-                        global_param._grad = local_param.grad # push
+                    self.push()
+                    # for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
+                    #     global_param._grad = local_param.grad # push
                     self.optimizer.step()
-                    self.local_network.load_state_dict(self.global_network.state_dict()) # pull
+                    self.pull()
+                    # self.local_network.load_state_dict(self.global_network.state_dict()) # pull
                     # self.local_network.reset()
                 self.l_ep += 1
                 self.env.step()
