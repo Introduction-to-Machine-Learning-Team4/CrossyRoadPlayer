@@ -181,7 +181,7 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 0)]
+                                for i in range(mp.cpu_count() - 7)]
         # parallel training
         [w.start() for w in self.workers]
         [w.join() for w in self.workers]
@@ -217,7 +217,8 @@ class Worker(mp.Process):
         push the hyperparameter from local network to global network (consider gradient) 
         """
         for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
-            global_param._grad = local_param.grad # push
+            if global_param.grad is not None:
+                global_param._grad = local_param.grad # push
 
     def run(self):
         """
@@ -247,11 +248,11 @@ class Worker(mp.Process):
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
                     # print(type(action), action)
-                    if self.l_ep % MAX_EP:
-                        action = np.asarray([[1]])
-                    else:
-                        action = np.asarray([[action]])
-                    # action = np.asarray([[action]])
+                    # if self.l_ep % MAX_EP:
+                    #     action = np.asarray([[1]])
+                    # else:
+                    #     action = np.asarray([[action]])
+                    action = np.asarray([[action]])
                     # print(type(action), action)
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     # state_new, reward, done = self.env.set_actions(action) 
@@ -265,15 +266,19 @@ class Worker(mp.Process):
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.push()
-                    # for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
-                    #     global_param._grad = local_param.grad # push
+                    
                     self.optimizer.step()
                     self.pull()
-                    # self.local_network.load_state_dict(self.global_network.state_dict()) # pull
-                    # self.local_network.reset()
                 self.l_ep += 1
                 self.env.step()
-                # state = state_new
+            # if done:
+            #     loss = self.local_network.calc_loss(done)
+            #     self.optimizer.zero_grad()
+            #     loss.backward()
+            #     self.push()
+            #     self.optimizer.step()
+            #     self.pull()
+            #     self.l_ep += 1
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
