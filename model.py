@@ -5,6 +5,7 @@ import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 from shared_adam import SharedAdam
+import datetime
 
 NUM_GAMES = 3000  # Maximum training episode for master agent
 MAX_EP = 10      # Maximum training episode for slave agent
@@ -29,7 +30,9 @@ class Network(nn.Module):
         # Actor
         self.net_actor = nn.Sequential(
             # nn.Conv2d(state_dim, 30, 3),
-            nn.Linear(state_dim, 30),
+            nn.Linear(state_dim, 60),
+            nn.ReLU(),
+            nn.Linear(60, 30),
             nn.ReLU(),
             nn.Linear(30, action_dim)
         )
@@ -146,10 +149,12 @@ class Network(nn.Module):
         torch.save(self.net_actor.state_dict(), f'.\model\{self.name}_actor.pt')
         torch.save(self.net_critic.state_dict(), f'.\model\{self.name}_critic.pt')
         with open(f'.\model\{self.name}_actor.txt', 'w') as fh:
+        # with open(f'.\model\{datetime.datetime.now()}\{self.name}_actor.txt', 'w') as fh:
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_actor.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
         with open(f'.\model\{self.name}_critic.txt', 'w') as fh:
+        # with open(f'.\model\{datetime.datetime.now()}\{self.name}_critic.txt', 'w') as fh:
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_critic.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
@@ -173,6 +178,7 @@ class Agent(mp.Process):
         """
         Close all slave agent created (debugging usage)
         """
+        # pass
         [w.env.close() for w in self.workers]
 
     def run(self):
@@ -181,7 +187,7 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 7)]
+                                for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
         [w.join() for w in self.workers]
@@ -218,7 +224,8 @@ class Worker(mp.Process):
         """
         for local_param, global_param in zip(self.local_network.parameters(), self.global_network.parameters()):
             if global_param.grad is not None:
-                global_param._grad = local_param.grad # push
+                return
+            global_param._grad = local_param.grad # push
 
     def run(self):
         """
@@ -261,24 +268,22 @@ class Worker(mp.Process):
                 reward = step.reward ## Unity return
                 score += reward
                 self.local_network.record(state, action, reward)
-                if self.l_ep % MAX_EP == 0 or done:
+                if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
-                    self.push()
-                    
+                    self.push()   
                     self.optimizer.step()
                     self.pull()
                 self.l_ep += 1
                 self.env.step()
-            # if done:
+            # if self.l_ep % MAX_EP == 0:
             #     loss = self.local_network.calc_loss(done)
             #     self.optimizer.zero_grad()
             #     loss.backward()
             #     self.push()
             #     self.optimizer.step()
             #     self.pull()
-            #     self.l_ep += 1
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
