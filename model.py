@@ -30,9 +30,9 @@ class Network(nn.Module):
         # Actor
         self.net_actor = nn.Sequential(
             # nn.Conv2d(state_dim, 30, 3),
-            nn.Linear(state_dim, 30),
-            # nn.ReLU(),
-            # nn.Linear(30, 30),
+            nn.Linear(state_dim, 60),
+            nn.ReLU(),
+            nn.Linear(60, 30),
             nn.ReLU(),
             nn.Linear(30, action_dim)
         )
