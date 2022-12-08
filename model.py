@@ -268,7 +268,7 @@ class Worker(mp.Process):
                 reward = step.reward ## Unity return
                 score += reward
                 self.local_network.record(state, action, reward)
-                if done:
+                if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
