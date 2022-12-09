@@ -4,6 +4,7 @@ def train():
     try:
         agent = Agent(93, 5)
         agent.start()
+        agent.join()
         agent.save()
     except Exception as e:
         agent.close()
