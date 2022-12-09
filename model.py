@@ -6,15 +6,16 @@ from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 from shared_adam import SharedAdam
 import datetime
+import os
 
-NUM_GAMES = 3000  # Maximum training episode for master agent
-MAX_EP = 10      # Maximum training episode for slave agent
+NUM_GAMES = 30  # Maximum training episode for master agent
+MAX_EP = 5     # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
     Neural network components in A3C architecture
     """
-    def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test', load=False, path_actor='', path_critic=''):
+    def __init__(self, state_dim=60, action_dim=5, gamma=0.95, name='test', timestamp=None ,load=False, path_actor='', path_critic=''):
         """
         Argument:
             state_dim -- dim of state
@@ -56,6 +57,7 @@ class Network(nn.Module):
         self.rewards = []
 
         self.name = name
+        self.timestamp = timestamp
 
     def forward(self, state): 
         """
@@ -146,18 +148,26 @@ class Network(nn.Module):
         """
         Save the model parameters into .pt & .txt files
         """
-        torch.save(self.net_actor.state_dict(), f'.\model\{self.name}_actor.pt')
-        torch.save(self.net_critic.state_dict(), f'.\model\{self.name}_critic.pt')
-        with open(f'.\model\{self.name}_actor.txt', 'w') as fh:
-        # with open(f'.\model\{datetime.datetime.now()}\{self.name}_actor.txt', 'w') as fh:
+        if not os.path.isdir(f'.\model\{self.timestamp}'):
+            os.mkdir(f'.\model\{self.timestamp}')
+        
+        torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
+        torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
+        
+        with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_actor.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
-        with open(f'.\model\{self.name}_critic.txt', 'w') as fh:
-        # with open(f'.\model\{datetime.datetime.now()}\{self.name}_critic.txt', 'w') as fh:
+        
+        with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_critic.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
+        
+        with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
+            fh.write("Index \t\t action \t reward:\n")
+            for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
+                fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
 
 class Agent(mp.Process):
     """
@@ -168,8 +178,9 @@ class Agent(mp.Process):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master', 
-                path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
-
+            timestamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S"),
+            load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
+        
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
@@ -178,20 +189,21 @@ class Agent(mp.Process):
         """
         Close all slave agent created (debugging usage)
         """
-        # pass
         [w.env.close() for w in self.workers]
+        pass
 
     def run(self):
         """
         Initilize all slave agents and start parallel training
         """
         self.workers = [Worker(self.global_network, self.opt, 
-                            self.state_dim, self.action_dim, 0.9, self.global_ep, i) 
-                                for i in range(mp.cpu_count() - 0)]
+                            self.state_dim, self.action_dim, 0.9, 
+                            self.global_ep, i, self.global_network.timestamp) 
+                                for i in range(mp.cpu_count() - 4)]
         # parallel training
         [w.start() for w in self.workers]
         [w.join() for w in self.workers]
-        [w.save() for w in self.workers]
+        # [w.save() for w in self.workers]
     
     def save(self):
         self.global_network.save()
@@ -201,9 +213,9 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name):
+            state_dim, action_dim, gamma, global_ep, name, timestamp):
         super().__init__()
-        self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}')
+        self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
         self.optimizer = optimizer
         self.g_ep = global_ep       # total episodes so far across all workers
@@ -233,8 +245,9 @@ class Worker(mp.Process):
         """
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
-        self.behavior = list(self.env.behavior_specs)[0]
         self.l_ep = 0
+        self.behavior = list(self.env.behavior_specs)[0]
+
         while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
@@ -268,25 +281,23 @@ class Worker(mp.Process):
                 reward = step.reward ## Unity return
                 score += reward
                 self.local_network.record(state, action, reward)
-                if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
-                    loss = self.local_network.calc_loss(done)
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    self.push()   
-                    self.optimizer.step()
-                    self.pull()
-                self.l_ep += 1
                 self.env.step()
-            # if self.l_ep % MAX_EP == 0:
-            #     loss = self.local_network.calc_loss(done)
-            #     self.optimizer.zero_grad()
-            #     loss.backward()
-            #     self.push()
-            #     self.optimizer.step()
-            #     self.pull()
+            
+            self.l_ep += 1
+
+            if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
+                loss = self.local_network.calc_loss(done)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.push()   
+                self.optimizer.step()
+                self.pull()
+
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
+
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
+        self.save()
 
     def save(self):
         """
