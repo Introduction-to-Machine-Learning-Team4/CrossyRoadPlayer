@@ -8,8 +8,8 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 30  # Maximum training episode for master agent
-MAX_EP = 5     # Maximum training episode for slave agent
+NUM_GAMES = 3000  # Maximum training episode for master agent
+MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -199,7 +199,7 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
                             self.global_ep, i, self.global_network.timestamp) 
-                                for i in range(mp.cpu_count() - 4)]
+                                for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
         [w.join() for w in self.workers]
@@ -281,17 +281,26 @@ class Worker(mp.Process):
                 reward = step.reward ## Unity return
                 score += reward
                 self.local_network.record(state, action, reward)
+                
+                if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
+                    loss = self.local_network.calc_loss(done)
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.push()   
+                    self.optimizer.step()
+                    self.pull()
+
                 self.env.step()
-            
+                
             self.l_ep += 1
 
-            if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
-                loss = self.local_network.calc_loss(done)
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.push()   
-                self.optimizer.step()
-                self.pull()
+            # if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
+            #     loss = self.local_network.calc_loss(done)
+            #     self.optimizer.zero_grad()
+            #     loss.backward()
+            #     self.push()   
+            #     self.optimizer.step()
+            #     self.pull()
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
