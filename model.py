@@ -35,7 +35,9 @@ class Network(nn.Module):
             nn.ReLU(),
             nn.Linear(60, 30),
             nn.ReLU(),
-            nn.Linear(30, action_dim)
+            nn.Linear(30, 15),
+            nn.ReLU(),
+            nn.Linear(15, action_dim)
         )
 
         # Critic
@@ -265,18 +267,13 @@ class Worker(mp.Process):
                     step = decision_steps[decision_steps.agent_id[0]]
                     state = step.obs ## Unity return
                     action = self.local_network.take_action(state)
-                    # FIXME: not compatible with current unity env., some slight adjustment is needed
+
                     actionTuple = ActionTuple()
-                    # print(type(action), action)
-                    # if self.l_ep % MAX_EP:
-                    #     action = np.asarray([[1]])
-                    # else:
-                    #     action = np.asarray([[action]])
+
                     action = np.asarray([[action]])
-                    # print(type(action), action)
+                    
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
-                    # state_new, reward, done = self.env.set_actions(action) 
-                    # actionTuple.add_continuous(np.array([[]])) ## please give me a INT in a 2d nparray!!
+                    
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
                 score += reward
@@ -293,14 +290,6 @@ class Worker(mp.Process):
                 self.env.step()
                 
             self.l_ep += 1
-
-            # if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
-            #     loss = self.local_network.calc_loss(done)
-            #     self.optimizer.zero_grad()
-            #     loss.backward()
-            #     self.push()   
-            #     self.optimizer.step()
-            #     self.pull()
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
