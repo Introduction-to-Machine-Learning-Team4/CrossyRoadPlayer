@@ -7,6 +7,17 @@ from mlagents_envs.environment import ActionTuple
 from shared_adam import SharedAdam
 import datetime
 import os
+import random
+
+# Seed
+seed = 1234
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 
 NUM_GAMES = 3000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
