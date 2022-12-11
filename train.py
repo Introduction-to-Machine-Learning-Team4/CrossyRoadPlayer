@@ -1,5 +1,7 @@
 from model import Agent
 
+SAVE_MODEL = False
+
 def train():
     try:
         agent = Agent(93, 5)

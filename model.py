@@ -19,7 +19,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 3000  # Maximum training episode for master agent
+NUM_GAMES = 5000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -209,12 +209,30 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
-                            self.global_ep, i, self.global_network.timestamp) 
+                            self.global_ep, i, self.global_network.timestamp, self.res_queue) 
                                 for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
+
+        # record episode reward to plot
+        res = []
+        while True:
+            r = self.res_queue.get()
+            if r is not None:
+                res.append(r)
+            else:
+                break
+
         [w.join() for w in self.workers]
         # [w.save() for w in self.workers]
+
+        # plot
+        import matplotlib.pyplot as plt
+        plt.plot(res)
+        plt.ylabel('Moving average ep reward')
+        plt.xlabel('Step')
+        plt.show()
+
     
     def save(self):
         self.global_network.save()
@@ -224,7 +242,7 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name, timestamp):
+            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue):
         super().__init__()
         self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
@@ -232,6 +250,7 @@ class Worker(mp.Process):
         self.g_ep = global_ep       # total episodes so far across all workers
         self.l_ep = None
         self.gamma = gamma          # reward discount factor
+        self.res_queue = res_queue
 
         self.name = f'{name}'
         
@@ -315,8 +334,13 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
+            
+            self.res_queue.put(score)
 
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
+        
+        self.res_queue.put(None)
+        
         self.save()
 
     def save(self):
