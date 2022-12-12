@@ -2,7 +2,7 @@ from model import Agent
 
 def train():
     try:
-        agent = Agent(93, 5)
+        agent = Agent(67, 5)
         agent.start()
         agent.join()
         agent.save()
