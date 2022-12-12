@@ -8,8 +8,8 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 3000  # Maximum training episode for master agent
-MAX_EP = 10     # Maximum training episode for slave agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
+MAX_EP = 10       # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -58,6 +58,8 @@ class Network(nn.Module):
         self.actions = []
         self.rewards = []
 
+        # self.scores  = []
+
         self.name = name
         self.timestamp = timestamp
 
@@ -84,6 +86,9 @@ class Network(nn.Module):
         self.actions.append(action)
         self.rewards.append(reward)
     
+    def score_record(self, score):
+        self.scores.append(score)
+
     def reset(self):
         """
         Reset the record 
@@ -119,6 +124,9 @@ class Network(nn.Module):
         for reward in self.rewards[::-1]:
             R = reward + self.gamma * R
             batch_return.append(R)
+        # for reward in self.scores[::-1]:
+            # R = reward + self.gamma * R
+            # batch_return.append(R)
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
@@ -135,6 +143,7 @@ class Network(nn.Module):
 
         pi, values = self.forward(states)
         values = values.squeeze()
+        # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
 
         probs = torch.softmax(pi, dim=1)
@@ -288,7 +297,7 @@ class Worker(mp.Process):
                     self.pull()
 
                 self.env.step()
-                
+            # self.local_network.score_record(score)
             self.l_ep += 1
 
             with self.g_ep.get_lock():
