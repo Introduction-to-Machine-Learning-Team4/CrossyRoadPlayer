@@ -20,7 +20,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 50  # Maximum training episode for master agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -99,11 +99,11 @@ class Network(nn.Module):
         x = state.view(-1, self.state_dim)
         hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
         
-        state = hx
+        # state = hx
 
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
-        logits = self.net_actor(state)
+        logits = self.net_actor(hx)
         value = self.net_critic(state)
 
         return logits, value, (hx, cx) # return logits, value and lstm parameters to update
@@ -171,7 +171,7 @@ class Network(nn.Module):
 
         returns, pi, values, _ = self.calc_R(done, lstm_par)
 
-        # pi, values, _ = self.forward(states, lstm_par) # FIXME
+        # pi, values, _ = self.forward(states, lstm_par) # FIXME:
         values = values.squeeze()
         # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
@@ -243,7 +243,8 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
-        
+        # TODO: add loss queue 
+
     def close(self):
         """
         Close all slave agent created (debugging usage)
