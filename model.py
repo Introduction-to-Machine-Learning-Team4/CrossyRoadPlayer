@@ -19,7 +19,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 5000  # Maximum training episode for master agent
+NUM_GAMES = 1000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -39,22 +39,34 @@ class Network(nn.Module):
         """
         super().__init__()
 
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+
+        # initialize LSTM
+        self.lstm = nn.LSTMCell(state_dim, state_dim, bias=False) # (input_size, hidden_size)
+        # self.lstm.bias_ih.data.fill_(0)
+        # self.lstm.bias_hh.data.fill_(0)
+        # h0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
+        # c0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
+
         # Actor
-        self.net_actor = nn.Sequential(
-            # nn.Conv2d(state_dim, 30, 3),
-            nn.Linear(state_dim, 60),
-            nn.ReLU(),
-            nn.Linear(60, 30),
-            nn.ReLU(),
-            nn.Linear(30, action_dim)
-        )
+        # self.net_actor = nn.Sequential(
+        #     # nn.Conv2d(state_dim, 30, 3),
+        #     nn.Linear(state_dim, 60),
+        #     nn.ReLU(),
+        #     nn.Linear(60, 30),
+        #     nn.ReLU(),
+        #     nn.Linear(30, action_dim)
+        # )
+        self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
 
         # Critic
-        self.net_critic = nn.Sequential(
-            nn.Linear(state_dim, 30),
-            nn.ReLU(),
-            nn.Linear(30, 1)
-        )
+        # self.net_critic = nn.Sequential(
+        #     nn.Linear(state_dim, 30),
+        #     nn.ReLU(),
+        #     nn.Linear(30, 1)
+        # )
+        self.net_critic = nn.Linear(state_dim, 1, bias=False)
 
         # load models
         if(load == True):
@@ -70,7 +82,7 @@ class Network(nn.Module):
         self.name = name
         self.timestamp = timestamp
 
-    def forward(self, state): 
+    def forward(self, state, lstm_par): 
         """
         Forward the state into neural networks
         Argument:
@@ -79,11 +91,19 @@ class Network(nn.Module):
             logits -- probability of each action being taken
             value  -- value of critic
         """
+        # lstm
+        (hx, cx) = lstm_par
+        x = state.view(-1, self.state_dim)
+        hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
+        
+        state = hx
+
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         logits = self.net_actor(state)
         value = self.net_critic(state)
-        return logits, value
+
+        return logits, value, (hx, cx) # return logits, value and lstm parameters to update
 
     def record(self, state, action, reward):
         """
@@ -101,7 +121,7 @@ class Network(nn.Module):
         self.actions = []
         self.rewards = []
 
-    def take_action(self, state):
+    def take_action(self, state, lstm_par):
         """
         Argument:
             state -- input state received from Unity environment 
@@ -109,20 +129,20 @@ class Network(nn.Module):
             action -- the action with MAXIMUM probability
         """
         state = torch.tensor(state, dtype=torch.float)
-        pi, v = self.forward(state)
+        pi, v, (hx, cx) = self.forward(state, lstm_par)
         probs = torch.softmax(pi, dim=1)
         dist = torch.distributions.Categorical(probs)
         action = dist.sample().numpy()[0]
-        return action
+        return action, (hx, cx)
 
-    def calc_R(self, done):
+    def calc_R(self, done, lstm_par):
         """
         TODO: 
         """
-        states = torch.tensor(self.states, dtype=torch.float)
-        _, v = self.forward(states)
+        states = torch.tensor(self.states, dtype=torch.float) # FIXME
+        pi, v, (hx, cx) = self.forward(states[-1], lstm_par)
 
-        R = v[-1] * (1 - int(done))
+        R = v * (1 - int(done))
 
         batch_return = []
         for reward in self.rewards[::-1]:
@@ -131,18 +151,18 @@ class Network(nn.Module):
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
-        return batch_return
+        return batch_return, pi, v, (hx, cx)
 
-    def calc_loss(self, done):
+    def calc_loss(self, done, lstm_par):
         """
         TODO: 
         """
         states = torch.tensor(self.states, dtype=torch.float)
         actions = torch.tensor(self.actions, dtype=torch.float)
 
-        returns = self.calc_R(done)
+        returns, pi, values, _ = self.calc_R(done, lstm_par)
 
-        pi, values = self.forward(states)
+        # pi, values, _ = self.forward(states, lstm_par) # FIXME
         values = values.squeeze()
         critic_loss = (returns - values) ** 2
 
@@ -251,6 +271,8 @@ class Worker(mp.Process):
         self.l_ep = None
         self.gamma = gamma          # reward discount factor
         self.res_queue = res_queue
+        self.state_dim = state_dim
+        self.action_dim = action_dim
 
         self.name = f'{name}'
         
@@ -279,12 +301,21 @@ class Worker(mp.Process):
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
+            new_ep = True
             done = False
             self.env.reset()
             score = 0
             self.local_network.reset()
             self.pull()
+
             while not done:
+                if new_ep:
+                    # initialize lstm parameters with zeros
+                    (hx, cx) = (torch.zeros(1, self.state_dim), torch.zeros(1, self.state_dim)) # (batch_size, hidden_size)
+                    # or with random values
+                    # (hx, cx) = (torch.radn(1, self.state_dim), torch.radn(1, self.state_dim)) # (batch_size, hidden_size)
+                    new_ep = False
+
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
                 if len(terminal_steps) != 0:
@@ -294,7 +325,7 @@ class Worker(mp.Process):
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     state = step.obs ## Unity return
-                    action = self.local_network.take_action(state)
+                    action, (hx, cx) = self.local_network.take_action(state, (hx, cx)) # take actions and update lstm parameters
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
                     # print(type(action), action)
@@ -313,16 +344,19 @@ class Worker(mp.Process):
                 self.local_network.record(state, action, reward)
                 
                 if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
-                    loss = self.local_network.calc_loss(done)
+                    # detach current lstm parameters
+                    cx = cx.detach()
+                    hx = hx.detach()
+                    loss = self.local_network.calc_loss(done, (hx, cx))
                     self.optimizer.zero_grad()
-                    loss.backward()
+                    loss.backward(retain_graph=True)
                     self.push()   
                     self.optimizer.step()
                     self.pull()
 
                 self.env.step()
                 
-            self.l_ep += 1
+                self.l_ep += 1
 
             # if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
             #     loss = self.local_network.calc_loss(done)
@@ -334,6 +368,8 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
+            
+            
             
             self.res_queue.put(score)
 
