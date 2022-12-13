@@ -1,0 +1,2 @@
+Model's state_dict:
+0.weight 	 torch.Size([30, 67])0.bias 	 torch.Size([30])2.weight 	 torch.Size([1, 30])2.bias 	 torch.Size([1])

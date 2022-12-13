@@ -79,6 +79,8 @@ class Network(nn.Module):
         self.actions = []
         self.rewards = []
 
+        # self.scores  = []
+
         self.name = name
         self.timestamp = timestamp
 
@@ -113,6 +115,9 @@ class Network(nn.Module):
         self.actions.append(action)
         self.rewards.append(reward)
     
+    def score_record(self, score):
+        self.scores.append(score)
+
     def reset(self):
         """
         Reset the record 
@@ -148,6 +153,9 @@ class Network(nn.Module):
         for reward in self.rewards[::-1]:
             R = reward + self.gamma * R
             batch_return.append(R)
+        # for reward in self.scores[::-1]:
+            # R = reward + self.gamma * R
+            # batch_return.append(R)
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
@@ -164,6 +172,7 @@ class Network(nn.Module):
 
         # pi, values, _ = self.forward(states, lstm_par) # FIXME
         values = values.squeeze()
+        # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
 
         probs = torch.softmax(pi, dim=1)
@@ -328,16 +337,11 @@ class Worker(mp.Process):
                     action, (hx, cx) = self.local_network.take_action(state, (hx, cx)) # take actions and update lstm parameters
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
-                    # print(type(action), action)
-                    # if self.l_ep % MAX_EP:
-                    #     action = np.asarray([[1]])
-                    # else:
-                    #     action = np.asarray([[action]])
+
                     action = np.asarray([[action]])
-                    # print(type(action), action)
+                    
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
-                    # state_new, reward, done = self.env.set_actions(action) 
-                    # actionTuple.add_continuous(np.array([[]])) ## please give me a INT in a 2d nparray!!
+                    
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
                 score += reward
@@ -365,6 +369,7 @@ class Worker(mp.Process):
             #     self.push()   
             #     self.optimizer.step()
             #     self.pull()
+            # self.local_network.score_record(score)
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
