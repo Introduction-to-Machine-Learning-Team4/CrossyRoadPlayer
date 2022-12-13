@@ -19,7 +19,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 1000  # Maximum training episode for master agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -50,23 +50,23 @@ class Network(nn.Module):
         # c0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
 
         # Actor
-        # self.net_actor = nn.Sequential(
-        #     # nn.Conv2d(state_dim, 30, 3),
-        #     nn.Linear(state_dim, 60),
-        #     nn.ReLU(),
-        #     nn.Linear(60, 30),
-        #     nn.ReLU(),
-        #     nn.Linear(30, action_dim)
-        # )
-        self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
+        self.net_actor = nn.Sequential(
+            # nn.Conv2d(state_dim, 30, 3),
+            nn.Linear(state_dim, 60),
+            nn.ReLU(),
+            nn.Linear(60, 30),
+            nn.ReLU(),
+            nn.Linear(30, action_dim)
+        )
+        # self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
 
         # Critic
-        # self.net_critic = nn.Sequential(
-        #     nn.Linear(state_dim, 30),
-        #     nn.ReLU(),
-        #     nn.Linear(30, 1)
-        # )
-        self.net_critic = nn.Linear(state_dim, 1, bias=False)
+        self.net_critic = nn.Sequential(
+            nn.Linear(state_dim, 30),
+            nn.ReLU(),
+            nn.Linear(30, 1)
+        )
+        # self.net_critic = nn.Linear(state_dim, 1, bias=False)
 
         # load models
         if(load == True):
@@ -261,7 +261,7 @@ class Agent(mp.Process):
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
         plt.show()
-
+        # plt.savefig(f'.\model\{self.global_network.timestamp}\reward.png')
     
     def save(self):
         self.global_network.save()
@@ -306,12 +306,15 @@ class Worker(mp.Process):
         """
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
-        self.l_ep = 0
+        # self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
             new_ep = True
             done = False
+
+            self.l_ep = 0
+
             self.env.reset()
             score = 0
             self.local_network.reset()
@@ -335,7 +338,7 @@ class Worker(mp.Process):
                     step = decision_steps[decision_steps.agent_id[0]]
                     state = step.obs ## Unity return
                     action, (hx, cx) = self.local_network.take_action(state, (hx, cx)) # take actions and update lstm parameters
-                    # FIXME: not compatible with current unity env., some slight adjustment is needed
+                    
                     actionTuple = ActionTuple()
 
                     action = np.asarray([[action]])
@@ -373,8 +376,6 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            
-            
             
             self.res_queue.put(score)
 
