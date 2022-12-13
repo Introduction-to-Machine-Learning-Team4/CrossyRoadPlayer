@@ -4,6 +4,7 @@ import torch.nn as nn
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
+# from torchsummary import summary
 from shared_adam import SharedAdam
 import datetime
 import os
@@ -19,7 +20,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 1000  # Maximum training episode for master agent
+NUM_GAMES = 50  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -50,23 +51,23 @@ class Network(nn.Module):
         # c0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
 
         # Actor
-        # self.net_actor = nn.Sequential(
-        #     # nn.Conv2d(state_dim, 30, 3),
-        #     nn.Linear(state_dim, 60),
-        #     nn.ReLU(),
-        #     nn.Linear(60, 30),
-        #     nn.ReLU(),
-        #     nn.Linear(30, action_dim)
-        # )
-        self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
+        self.net_actor = nn.Sequential(
+            # nn.Conv2d(state_dim, 30, 3),
+            nn.Linear(state_dim, 60),
+            nn.ReLU(),
+            nn.Linear(60, 30),
+            nn.ReLU(),
+            nn.Linear(30, action_dim)
+        )
+        # self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
 
         # Critic
-        # self.net_critic = nn.Sequential(
-        #     nn.Linear(state_dim, 30),
-        #     nn.ReLU(),
-        #     nn.Linear(30, 1)
-        # )
-        self.net_critic = nn.Linear(state_dim, 1, bias=False)
+        self.net_critic = nn.Sequential(
+            nn.Linear(state_dim, 30),
+            nn.ReLU(),
+            nn.Linear(30, 1)
+        )
+        # self.net_critic = nn.Linear(state_dim, 1, bias=False)
 
         # load models
         if(load == True):
@@ -209,6 +210,20 @@ class Network(nn.Module):
             for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
                 fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
 
+        # Ouput parameters
+        with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
+            fh.write(f'timestamp: {self.timestamp}\n')
+            fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
+            fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
+            fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
+            fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
+            fh.write(f'============================================================\n')
+            
+            # actor_summary = summary(self.net_actor, )
+            fh.write(f'lstm:\n{self.lstm}\n')
+            fh.write(f'actor network:\n{self.net_actor}\n')
+            fh.write(f'critic network:\n{self.net_critic}\n')
+
 class Agent(mp.Process):
     """
     Master agent in A3C architecture
@@ -217,8 +232,9 @@ class Agent(mp.Process):
         super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.time_stamp = datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S")
         self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master', 
-            timestamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S"),
+            timestamp=self.time_stamp,
             load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
@@ -261,6 +277,7 @@ class Agent(mp.Process):
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
         plt.show()
+        plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
 
     
     def save(self):
@@ -338,6 +355,10 @@ class Worker(mp.Process):
                     # FIXME: not compatible with current unity env., some slight adjustment is needed
                     actionTuple = ActionTuple()
 
+                    # if (self.l_ep == 1):
+                    #     action = np.array([[1]])
+                    # else:
+                    #     action = np.asarray([[action]])
                     action = np.asarray([[action]])
                     
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
@@ -373,8 +394,6 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            
-            
             
             self.res_queue.put(score)
 
