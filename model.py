@@ -288,7 +288,7 @@ class Worker(mp.Process):
                 score += reward
                 self.local_network.record(state, action, reward)
                 
-                if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
+                if self.l_ep % MAX_EP == 0 or done == True:
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
@@ -298,7 +298,7 @@ class Worker(mp.Process):
 
                 self.env.step()
             # self.local_network.score_record(score)
-            self.l_ep += 1
+                self.l_ep += 1
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
