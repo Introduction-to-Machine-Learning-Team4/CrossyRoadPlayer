@@ -218,8 +218,6 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             fh.write(f'============================================================\n')
-            
-            # actor_summary = summary(self.net_actor, )
             fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
             fh.write(f'critic network:\n{self.net_critic}\n')
@@ -278,7 +276,6 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.show()
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
-
     
     def save(self):
         self.global_network.save()
@@ -323,12 +320,15 @@ class Worker(mp.Process):
         """
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
-        self.l_ep = 0
+        # self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
             new_ep = True
             done = False
+
+            self.l_ep = 0
+
             self.env.reset()
             score = 0
             self.local_network.reset()
@@ -350,9 +350,9 @@ class Worker(mp.Process):
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
-                    state = step.obs ## Unity return
+                    state = np.array(step.obs) + np.random.rand(*np.array(np.array(step.obs)).shape) ## Unity return
                     action, (hx, cx) = self.local_network.take_action(state, (hx, cx)) # take actions and update lstm parameters
-                    # FIXME: not compatible with current unity env., some slight adjustment is needed
+                    
                     actionTuple = ActionTuple()
 
                     # if (self.l_ep == 1):
@@ -365,6 +365,12 @@ class Worker(mp.Process):
                     
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
+                # -------- Manual Adjust ---------
+                if(reward >= 1): # Beating Highscore
+                    reward = reward - 0.2
+                elif(reward >= 0.1): # moving forward 15 sec
+                    reward = reward + 0.2
+                # ----------------------------------------
                 score += reward
                 self.local_network.record(state, action, reward)
                 
