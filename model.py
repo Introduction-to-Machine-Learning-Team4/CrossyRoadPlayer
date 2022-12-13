@@ -335,8 +335,9 @@ class Worker(mp.Process):
                     state = step.obs ## Unity return
                     done = True
                 else:
-                    step = decision_steps[decision_steps.agent_id[0]]
-                    state = np.array(step.obs) + np.random.rand(*np.array(np.array(step.obs)).shape) ## Unity return
+                    step = decision_steps[decision_steps.agent_id[0]] 
+                    state = np.array(step.obs) + np.random.rand(*np.array(np.array(step.obs)).shape) if (self.g_ep.value < 100) else np.array(step.obs) ## Unity return
+                    
                     action, (hx, cx) = self.local_network.take_action(state, (hx, cx)) # take actions and update lstm parameters
                     
                     actionTuple = ActionTuple()
@@ -349,9 +350,9 @@ class Worker(mp.Process):
                 reward = step.reward ## Unity return
                 # -------- Manual Adjust ---------
                 if(reward >= 1): # Beating Highscore
-                    reward = reward - 0.2
+                    reward = reward - 0.3
                 elif(reward >= 0.1): # moving forward 15 sec
-                    reward = reward + 0.2
+                    reward = reward + 0.1
                 # ----------------------------------------
                 score += reward
                 self.local_network.record(state, action, reward)
