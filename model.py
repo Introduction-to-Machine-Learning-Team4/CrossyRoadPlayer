@@ -204,6 +204,11 @@ class Network(nn.Module):
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_critic.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
+
+        with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
+            fh.write("Model's state_dict:\n")
+            for param_tensor in self.lstm.state_dict():
+                fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
         with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
             fh.write("Index \t\t action \t reward:\n")
