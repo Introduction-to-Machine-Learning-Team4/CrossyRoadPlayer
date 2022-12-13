@@ -1,0 +1,22 @@
+timestamp: 2022-12-13-22-24-00
+state dimension: 67
+action dimension: 5
+Maximum training episode for master agent: 50
+Maximum training episode for slave agent: 10
+============================================================
+lstm:
+LSTMCell(67, 67, bias=False)
+actor network:
+Sequential(
+  (0): Linear(in_features=67, out_features=60, bias=True)
+  (1): ReLU()
+  (2): Linear(in_features=60, out_features=30, bias=True)
+  (3): ReLU()
+  (4): Linear(in_features=30, out_features=5, bias=True)
+)
+critic network:
+Sequential(
+  (0): Linear(in_features=67, out_features=30, bias=True)
+  (1): ReLU()
+  (2): Linear(in_features=30, out_features=1, bias=True)
+)
