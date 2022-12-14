@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
 NUM_GAMES = 100000  # Maximum training episode for master agent
-MAX_EP = 10     # Maximum training episode for slave agent
+MAX_EP = 100     # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -99,11 +99,11 @@ class Network(nn.Module):
         x = state.view(-1, self.state_dim)
         hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
         
-        # state = hx
+        state = hx
 
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
-        logits = self.net_actor(hx)
+        logits = self.net_actor(state)
         value = self.net_critic(state)
 
         return logits, value, (hx, cx) # return logits, value and lstm parameters to update
