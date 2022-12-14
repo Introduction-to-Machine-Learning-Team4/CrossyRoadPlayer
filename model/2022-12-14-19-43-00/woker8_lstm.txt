@@ -1,0 +1,2 @@
+Model's state_dict:
+weight_ih 	 torch.Size([268, 67])weight_hh 	 torch.Size([268, 67])

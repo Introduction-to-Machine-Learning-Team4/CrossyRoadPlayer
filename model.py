@@ -20,7 +20,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 10000  # Maximum training episode for master agent
+NUM_GAMES = 100000  # Maximum training episode for master agent
 MAX_EP = 10     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -280,8 +280,8 @@ class Agent(mp.Process):
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
-        plt.show()
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
+        plt.show()
     
     def save(self):
         self.global_network.save()
@@ -373,10 +373,10 @@ class Worker(mp.Process):
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
                 # -------- Manual Adjust ---------
-                if(reward >= 1): # Beating Highscore
-                    reward = reward - 0.3
-                elif(reward >= 0.1): # moving forward 15 sec
-                    reward = reward + 0.1
+                # if(reward >= 1): # Beating Highscore
+                #     reward = reward - 0.3
+                # elif(reward >= 0.1): # moving forward 15 sec
+                #     reward = reward + 0.1
                 # ----------------------------------------
                 score += reward
                 self.local_network.record(state, action, reward)
