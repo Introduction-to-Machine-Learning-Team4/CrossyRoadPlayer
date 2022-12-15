@@ -53,7 +53,7 @@ class Network(nn.Module):
         # Actor
         self.net_actor = nn.Sequential(
             nn.Linear(state_dim, 60),
-            nn.Dropout(p=0.2),
+            nn.Dropout(p=0.3),
             nn.ReLU(),
             nn.Linear(60, 30),
             nn.ReLU(),
