@@ -20,7 +20,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 100000  # Maximum training episode for master agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
 MAX_EP = 100     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -52,8 +52,8 @@ class Network(nn.Module):
 
         # Actor
         self.net_actor = nn.Sequential(
-            # nn.Conv2d(state_dim, 30, 3),
             nn.Linear(state_dim, 60),
+            nn.Dropout(p=0.2),
             nn.ReLU(),
             nn.Linear(60, 30),
             nn.ReLU(),
@@ -68,6 +68,9 @@ class Network(nn.Module):
             nn.Linear(30, 1)
         )
         # self.net_critic = nn.Linear(state_dim, 1, bias=False)
+
+        # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
+        # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
 
         # load models
         if(load == True):
@@ -101,8 +104,6 @@ class Network(nn.Module):
         
         state = hx
 
-        # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
-        # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         logits = self.net_actor(state)
         value = self.net_critic(state)
 

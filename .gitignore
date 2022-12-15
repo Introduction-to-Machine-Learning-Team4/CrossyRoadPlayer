@@ -137,3 +137,4 @@ dmypy.json
 /.Exe
 /EXE_nw
 /results
+/temp.*
