@@ -30,21 +30,30 @@ class Network(nn.Module):
 
         # Actor
         self.net_actor = nn.Sequential(
-            # nn.Conv2d(state_dim, 30, 3),
-            nn.Linear(state_dim, 60),
+            nn.Conv2d(1, 60, (1,1)),
+            nn.Conv2d(60, 30, (1,1)),
+            nn.Flatten(0,-1),
+            nn.Linear(2940, 1024),
             nn.ReLU(),
-            nn.Linear(60, 30),
+            nn.Linear(1024, 512),
             nn.ReLU(),
-            nn.Linear(30, 15),
+            nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Linear(15, action_dim)
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, action_dim)
         )
 
         # Critic
         self.net_critic = nn.Sequential(
-            nn.Linear(state_dim, 30),
+            nn.Conv2d(1, 10, (1,1)),
+            nn.Conv2d(10, 5, (1,1)),
+            nn.Flatten(0,-1),
+            nn.Linear(490, 256),
             nn.ReLU(),
-            nn.Linear(30, 1)
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
         )
 
         # load models
@@ -54,7 +63,7 @@ class Network(nn.Module):
 
         self.gamma = gamma
        
-        self.states  = []
+        self.states  = np.array([])
         self.actions = []
         self.rewards = []
 
@@ -82,7 +91,10 @@ class Network(nn.Module):
         """
         Record <state, action, reward> after taking this action
         """
-        self.states.append(state)
+        if(self.states.size == 0):
+            self.states = state
+        else:
+            np.append(self.states, state)
         self.actions.append(action)
         self.rewards.append(reward)
     
@@ -93,7 +105,7 @@ class Network(nn.Module):
         """
         Reset the record 
         """
-        self.states  = []
+        self.states  = np.array([])
         self.actions = []
         self.rewards = []
 
@@ -106,9 +118,10 @@ class Network(nn.Module):
         """
         state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
-        probs = torch.softmax(pi, dim=1)
+        probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
-        action = dist.sample().numpy()[0]
+        # print(dist.sample().numpy())
+        action = dist.sample().numpy()
         return action
 
     def calc_R(self, done):
@@ -146,7 +159,7 @@ class Network(nn.Module):
         # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
 
-        probs = torch.softmax(pi, dim=1)
+        probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
         log_probs = dist.log_prob(actions)
         actor_loss = -log_probs*(returns-values)
@@ -219,7 +232,7 @@ class Agent(mp.Process):
     def save(self):
         self.global_network.save()
 
-class Worker(mp.Process): 
+class Worker(mp.Process):
     """
     Slave agnet in A3C architecture
     """
@@ -270,11 +283,33 @@ class Worker(mp.Process):
                 step = None
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
-                    state = step.obs ## Unity return
+                    state = np.array(step.obs) ## Unity return
+                    state = np.vstack((
+                        state[42:49],
+                        state[35:42],
+                        state[28:35],
+                        state[21:28],
+                        state[14:21],
+                        state[7:14],
+                        state[0:7],
+                    ))
+                    state = state.reshape(1,7,7)
+                    print(state.shape)
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
-                    state = step.obs ## Unity return
+                    state = np.array(step.obs) ## Unity return
+                    state = np.vstack((
+                        state[42:49],
+                        state[35:42],
+                        state[28:35],
+                        state[21:28],
+                        state[14:21],
+                        state[7:14],
+                        state[0:7],
+                    ))
+                    state = state.reshape(1,7,7)
+                    print(state.shape)
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
