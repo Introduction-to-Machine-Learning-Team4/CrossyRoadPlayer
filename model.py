@@ -9,7 +9,7 @@ import datetime
 import os
 
 NUM_GAMES = 1000  # Maximum training episode for master agent
-MAX_EP = 10       # Maximum training episode for slave agent
+MAX_EP = 100       # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -213,7 +213,6 @@ class Agent(mp.Process):
         Close all slave agent created (debugging usage)
         """
         [w.env.close() for w in self.workers]
-        pass
 
     def run(self):
         """
@@ -283,14 +282,15 @@ class Worker(mp.Process):
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
-        self.l_ep = 0
+        # self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
             done = False
+            self.l_ep = 0
             self.env.reset()
             score = 0
-            # self.local_network.reset()
+            self.local_network.reset()
             self.pull()
             while not done:
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
@@ -338,17 +338,18 @@ class Worker(mp.Process):
                 self.local_network.record(state, action, reward)
                 
                 if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
+                    print(f'debug usage: self.l_ep={self.l_ep}')
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.push()   
                     self.optimizer.step()
                     self.pull()
-                    self.local_network.reset()
+                    # self.local_network.reset()
 
                 self.env.step()
             # self.local_network.score_record(score)
-            self.l_ep += 1
+                self.l_ep += 1
             
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
