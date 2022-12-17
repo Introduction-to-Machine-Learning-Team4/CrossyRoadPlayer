@@ -282,6 +282,7 @@ class Worker(mp.Process):
         """
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
+        self.local_network.reset()
         self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
 
@@ -289,7 +290,7 @@ class Worker(mp.Process):
             done = False
             self.env.reset()
             score = 0
-            self.local_network.reset()
+            # self.local_network.reset()
             self.pull()
             while not done:
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
@@ -343,6 +344,7 @@ class Worker(mp.Process):
                     self.push()   
                     self.optimizer.step()
                     self.pull()
+                    self.local_network.reset()
 
                 self.env.step()
             # self.local_network.score_record(score)
