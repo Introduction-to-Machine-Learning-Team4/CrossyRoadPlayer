@@ -8,7 +8,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 10000  # Maximum training episode for master agent
+NUM_GAMES = 1000  # Maximum training episode for master agent
 MAX_EP = 10       # Maximum training episode for slave agent
 
 class Network(nn.Module):
