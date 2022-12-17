@@ -53,7 +53,6 @@ class Network(nn.Module):
         # Actor
         self.net_actor = nn.Sequential(
             nn.Linear(state_dim, 60),
-            nn.Dropout(p=0.3),
             nn.ReLU(),
             nn.Linear(60, 30),
             nn.ReLU(),
@@ -395,7 +394,7 @@ class Worker(mp.Process):
 
                 self.env.step()
                 
-                self.l_ep += 1
+            self.l_ep += 1
 
             # if self.l_ep % MAX_EP == 0 and self.l_ep != 0:
             #     loss = self.local_network.calc_loss(done)
