@@ -30,30 +30,19 @@ class Network(nn.Module):
 
         # Actor
         self.net_actor = nn.Sequential(
-            nn.Conv2d(1, 60, (1,1)),
-            nn.Conv2d(60, 30, (1,1)),
-            nn.Flatten(0,-1),
-            nn.Linear(2940, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, action_dim)
-        )
-
-        # Critic
-        self.net_critic = nn.Sequential(
             nn.Conv2d(1, 10, (1,1)),
-            nn.Conv2d(10, 5, (1,1)),
             nn.Flatten(0,-1),
+            nn.ReLU(),
             nn.Linear(490, 256),
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(256, 5)
+        )
+        # Critic
+        self.net_critic = nn.Sequential(
+            nn.Conv2d(1, 3, (1,1)),
+            nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(147, 1)
         )
 
         # load models
@@ -83,8 +72,14 @@ class Network(nn.Module):
         """
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
-        logits = self.net_actor(state)
-        value = self.net_critic(state)
+        for i in range(state.shape[0]):
+            s = state[i,:,:].reshape(1, 7, 7)
+            if (i == 0):
+                logits = self.net_actor(s)
+                value  = self.net_critic(s)
+            else:
+                logits = torch.vstack((logits, self.net_actor(s)))
+                value  = torch.vstack((value, self.net_critic(s))) 
         return logits, value
 
     def record(self, state, action, reward):
@@ -94,7 +89,7 @@ class Network(nn.Module):
         if(self.states.size == 0):
             self.states = state
         else:
-            np.append(self.states, state)
+            self.states = np.append(self.states, state, axis=0)
         self.actions.append(action)
         self.rewards.append(reward)
     
@@ -118,6 +113,7 @@ class Network(nn.Module):
         """
         state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
+        # print(f'pi: {pi} {pi.shape}')
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
         # print(dist.sample().numpy())
@@ -128,7 +124,9 @@ class Network(nn.Module):
         """
         TODO: 
         """
+        # print(self.states.shape)
         states = torch.tensor(self.states, dtype=torch.float)
+        # print(states.shape)
         _, v = self.forward(states)
 
         R = v[-1] * (1 - int(done))
@@ -158,7 +156,7 @@ class Network(nn.Module):
         values = values.squeeze()
         # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
-
+        # print(f'pi: {pi} {pi.shape}')
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
         log_probs = dist.log_prob(actions)
@@ -201,8 +199,9 @@ class Agent(mp.Process):
         super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.time_stamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S")
         self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master', 
-            timestamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S"),
+            timestamp=self.time_stamp,
             load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
@@ -222,12 +221,26 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
-                            self.global_ep, i, self.global_network.timestamp) 
+                            self.global_ep, i, self.global_network.timestamp, self.res_queue) 
                                 for i in range(mp.cpu_count() - 0)]
+        res = []
         # parallel training
         [w.start() for w in self.workers]
+        while True:
+            r = self.res_queue.get()
+            if r is not None:
+                res.append(r)
+            else:
+                break
         [w.join() for w in self.workers]
         # [w.save() for w in self.workers]
+
+        import matplotlib.pyplot as plt
+        plt.plot(res)
+        plt.ylabel('Moving average ep reward')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
+        plt.show()
     
     def save(self):
         self.global_network.save()
@@ -237,7 +250,7 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name, timestamp):
+            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue):
         super().__init__()
         self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
@@ -245,7 +258,7 @@ class Worker(mp.Process):
         self.g_ep = global_ep       # total episodes so far across all workers
         self.l_ep = None
         self.gamma = gamma          # reward discount factor
-
+        self.res_queue = res_queue
         self.name = f'{name}'
         
     def pull(self):
@@ -283,7 +296,7 @@ class Worker(mp.Process):
                 step = None
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
-                    state = np.array(step.obs) ## Unity return
+                    state = np.array(step.obs) # [:,:49] ## Unity return
                     state = np.vstack((
                         state[42:49],
                         state[35:42],
@@ -294,11 +307,11 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    print(state.shape)
+                    # print(state.shape)
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
-                    state = np.array(step.obs) ## Unity return
+                    state = np.array(step.obs) # [:,:49] ## Unity return
                     state = np.vstack((
                         state[42:49],
                         state[35:42],
@@ -309,7 +322,7 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    print(state.shape)
+                    # print(state.shape)
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
@@ -334,11 +347,16 @@ class Worker(mp.Process):
                 self.env.step()
             # self.local_network.score_record(score)
             self.l_ep += 1
-
+            
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
+            
+            self.res_queue.put(score)
 
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
+
+        self.res_queue.put(None)
+
         self.save()
 
     def save(self):
