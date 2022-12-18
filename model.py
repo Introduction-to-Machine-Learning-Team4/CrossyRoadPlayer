@@ -8,8 +8,8 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 1000  # Maximum training episode for master agent
-MAX_EP = 100       # Maximum training episode for slave agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
+MAX_EP = 50       # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -338,7 +338,7 @@ class Worker(mp.Process):
                 self.local_network.record(state, action, reward)
                 
                 if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
-                    print(f'debug usage: self.l_ep={self.l_ep}')
+                    # print(f'For debug usage: self.l_ep={self.l_ep}')
                     loss = self.local_network.calc_loss(done)
                     self.optimizer.zero_grad()
                     loss.backward()
