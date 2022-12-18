@@ -29,20 +29,22 @@ class Network(nn.Module):
         super().__init__()
 
         # Actor
+        # FIXME: Adjust the shape
         self.net_actor = nn.Sequential(
             nn.Conv2d(1, 10, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(490, 256),
+            nn.Linear(280, 256),
             nn.ReLU(),
             nn.Linear(256, 5)
         )
         # Critic
+        # FIXME: Adjust the shape
         self.net_critic = nn.Sequential(
             nn.Conv2d(1, 3, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(147, 1)
+            nn.Linear(84, 1)
         )
 
         # load models
@@ -72,8 +74,9 @@ class Network(nn.Module):
         """
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
+        # FIXME: Adjust the shape
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 7, 7)
+            s = state[i,:,:].reshape(1, 4, 7)
             if (i == 0):
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -298,6 +301,7 @@ class Worker(mp.Process):
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
                     state = np.array(step.obs) # [:,:49] ## Unity return
+                    # FIXME: Adjust the shape
                     state = np.vstack((
                         state[42:49],
                         state[35:42],
@@ -308,12 +312,15 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    print(state)
-                    print('\n')
+                    state = state[:,2:6,:]
+                    # state = state[2:6,:].reshape(1,4,7)
+                    # print(state)
+                    # print('\n')
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     state = np.array(step.obs) # [:,:49] ## Unity return
+                    # FIXME: Adjust the shape
                     state = np.vstack((
                         state[42:49],
                         state[35:42],
@@ -324,8 +331,10 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    print(state)
-                    print('\n')
+                    state = state[:,2:6,:]
+                    # state = state[2:6,:].reshape(1,4,7)
+                    # print(state)
+                    # print('\n')
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
