@@ -205,7 +205,7 @@ class Agent(mp.Process):
             load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
-        self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
+        self.opt = SharedAdam(self.global_network.parameters(), lr=1e-5, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
         
     def close(self):
@@ -221,7 +221,7 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
                             self.global_ep, i, self.global_network.timestamp, self.res_queue) 
-                                for i in range(mp.cpu_count() - 0)]
+                                for i in range(mp.cpu_count() - 15)]
         res = []
         # parallel training
         [w.start() for w in self.workers]
@@ -308,7 +308,8 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    # print(state.shape)
+                    print(state)
+                    print('\n')
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
@@ -323,7 +324,8 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    # print(state.shape)
+                    print(state)
+                    print('\n')
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
