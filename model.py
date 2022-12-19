@@ -8,8 +8,9 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 10000  # Maximum training episode for master agent
-MAX_EP = 50       # Maximum training episode for slave agent
+NUM_GAMES = 10000  # Maximum total training episode for master agent
+MAX_EP    = 10     # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 100     # Maximum step for slave agent to do gradient descent
 
 class Network(nn.Module):
     """
@@ -238,7 +239,7 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
                             self.global_ep, i, self.global_network.timestamp, self.res_queue,self.score_queue,self.loss_queue) 
-                                for i in range(mp.cpu_count() - 15)]
+                                for i in range(mp.cpu_count() - 0)]
         res = []
         # parallel training
         [w.start() for w in self.workers]
@@ -303,6 +304,7 @@ class Worker(mp.Process):
         self.optimizer = optimizer
         self.g_ep = global_ep       # total episodes so far across all workers
         self.l_ep = None
+        self.l_step = None
         self.gamma = gamma          # reward discount factor
         self.res_queue = res_queue
         self.name = f'{name}'
@@ -334,18 +336,20 @@ class Worker(mp.Process):
         self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
-        # self.l_ep = 0
+        self.pull()
+        self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
             done = False
-            self.l_ep = 0
             self.env.reset()
+
+            self.l_step = 0
+            
             score = 0
-            self.local_network.reset()
-            self.pull()
-            best_score=0
-            current_score=0
+            best_score = 0
+            current_score = 0
+            
             while not done:
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
@@ -364,9 +368,6 @@ class Worker(mp.Process):
                     ))
                     state = state.reshape(1,7,7)
                     state = state[:,2:7,:]
-                    # state = state[2:6,:].reshape(1,4,7)
-                    # print(state)
-                    # print('\n')
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
@@ -384,9 +385,6 @@ class Worker(mp.Process):
                     ))
                     state = state.reshape(1,7,7)
                     state = state[:,2:7,:]
-                    # state = state[2:6,:].reshape(1,4,7)
-                    # print(state)
-                    # print('\n')
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
@@ -406,22 +404,28 @@ class Worker(mp.Process):
                 score += reward
                 self.local_network.record(state, action, reward)
                 
-                if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
+                # Do the gradient descent but not update global network directly
+                if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
                     # print(f'For debug usage: self.l_ep={self.l_ep}')
                     loss = self.local_network.calc_loss(done)
-                    self.optimizer.zero_grad()
+                    self.loss_queue.put(loss.detach().numpy()) #record loss
                     loss.backward()
+                    self.local_network.reset()
+
+                # update global network (gradient accumulation!)
+                if (self.l_ep % MAX_EP == 0):
                     self.push()   
                     self.optimizer.step()
                     self.pull()
-                    # self.local_network.reset()
+                    self.optimizer.zero_grad()
 
                 self.env.step()
 
-                self.l_ep += 1
+                self.l_step += 1
             
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
+                self.l_ep       += 1
             
             self.res_queue.put(score)
             self.score_queue.put(best_score)
