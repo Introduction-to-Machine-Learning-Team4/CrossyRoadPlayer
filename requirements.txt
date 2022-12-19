@@ -2,3 +2,4 @@ mlagents==0.28.0
 importlib-metadata==4.4
 --find-links https://download.pytorch.org/whl/torch_stable.html
 torch==1.13.0+cpu
+matplotlib
