@@ -126,7 +126,7 @@ class Network(nn.Module):
 
     def calc_R(self, done):
         """
-        TODO: 
+        TODO: Try GAE
         """
         states = torch.tensor(self.states, dtype=torch.float)
         
@@ -290,7 +290,7 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         plt.close()
-    
+
     def save(self):
         self.global_network.save()
 
