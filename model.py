@@ -34,7 +34,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 10, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(280, 256),
+            nn.Linear(350, 256),
             nn.ReLU(),
             nn.Linear(256, 5)
         )
@@ -44,7 +44,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 3, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(84, 1)
+            nn.Linear(105, 1)
         )
 
         # load models
@@ -76,7 +76,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 4, 7)
+            s = state[i,:,:].reshape(1, 5, 7)
             if (i == 0):
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -96,9 +96,6 @@ class Network(nn.Module):
         self.actions.append(action)
         self.rewards.append(reward)
     
-    def score_record(self, score):
-        self.scores.append(score)
-
     def reset(self):
         """
         Reset the record 
@@ -138,9 +135,6 @@ class Network(nn.Module):
         for reward in self.rewards[::-1]:
             R = reward + self.gamma * R
             batch_return.append(R)
-        # for reward in self.scores[::-1]:
-            # R = reward + self.gamma * R
-            # batch_return.append(R)
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
@@ -224,7 +218,7 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
                             self.global_ep, i, self.global_network.timestamp, self.res_queue) 
-                                for i in range(mp.cpu_count() - 15)]
+                                for i in range(mp.cpu_count() - 0)]
         res = []
         # parallel training
         [w.start() for w in self.workers]
@@ -312,14 +306,15 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    state = state[:,2:6,:]
+                    state = state[:,2:7,:]
                     # state = state[2:6,:].reshape(1,4,7)
                     # print(state)
                     # print('\n')
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
-                    state = np.array(step.obs) # [:,:49] ## Unity return
+                    # Add noise
+                    state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
                     # FIXME: Adjust the shape
                     state = np.vstack((
                         state[42:49],
@@ -331,7 +326,7 @@ class Worker(mp.Process):
                         state[0:7],
                     ))
                     state = state.reshape(1,7,7)
-                    state = state[:,2:6,:]
+                    state = state[:,2:7,:]
                     # state = state[2:6,:].reshape(1,4,7)
                     # print(state)
                     # print('\n')
@@ -359,7 +354,7 @@ class Worker(mp.Process):
                     # self.local_network.reset()
 
                 self.env.step()
-            # self.local_network.score_record(score)
+
                 self.l_ep += 1
             
             with self.g_ep.get_lock():
