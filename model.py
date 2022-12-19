@@ -28,6 +28,9 @@ class Network(nn.Module):
         """
         super().__init__()
 
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+   
         # Actor
         # FIXME: Adjust the shape
         self.net_actor = nn.Sequential(
@@ -113,10 +116,10 @@ class Network(nn.Module):
         """
         state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
-        # print(f'pi: {pi} {pi.shape}')
+        
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
-        # print(dist.sample().numpy())
+        
         action = dist.sample().numpy()
         return action
 
@@ -124,9 +127,8 @@ class Network(nn.Module):
         """
         TODO: 
         """
-        # print(self.states.shape)
         states = torch.tensor(self.states, dtype=torch.float)
-        # print(states.shape)
+        
         _, v = self.forward(states)
 
         R = v[-1] * (1 - int(done))
@@ -182,11 +184,28 @@ class Network(nn.Module):
             fh.write("Model's state_dict:\n")
             for param_tensor in self.net_critic.state_dict():
                 fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
+
+        # with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.lstm.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
         with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
             fh.write("Index \t\t action \t reward:\n")
             for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
                 fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+
+        # Ouput parameters
+        with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
+            fh.write(f'timestamp: {self.timestamp}\n')
+            fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
+            fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
+            fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
+            fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
+            fh.write(f'============================================================\n')
+            # fh.write(f'lstm:\n{self.lstm}\n')
+            fh.write(f'actor network:\n{self.net_actor}\n')
+            fh.write(f'critic network:\n{self.net_critic}\n')
 
 class Agent(mp.Process):
     """
@@ -203,8 +222,9 @@ class Agent(mp.Process):
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-5, betas=(0.92, 0.999)) # global optimizer
-        self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
-        
+        self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
+            mp.Value('i', 0), mp.Queue(), mp.Queue(), mp.Queue()
+
     def close(self):
         """
         Close all slave agent created (debugging usage)
@@ -217,26 +237,56 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
-                            self.global_ep, i, self.global_network.timestamp, self.res_queue) 
-                                for i in range(mp.cpu_count() - 0)]
+                            self.global_ep, i, self.global_network.timestamp, self.res_queue,self.score_queue,self.loss_queue) 
+                                for i in range(mp.cpu_count() - 15)]
         res = []
         # parallel training
         [w.start() for w in self.workers]
+        
+        # record episode reward to plot
+        res = []
+        score=[]
+        loss=[]
+        
         while True:
             r = self.res_queue.get()
             if r is not None:
                 res.append(r)
             else:
                 break
+        
+        while True:
+            sc = self.score_queue.get()
+            if sc is not None:
+                score.append(sc)
+            else:
+                break
+
+        while True:
+            los = self.loss_queue.get()
+            if los is not None:
+                loss.append(los)
+            else:
+                break
         [w.join() for w in self.workers]
         # [w.save() for w in self.workers]
 
+        # plot
         import matplotlib.pyplot as plt
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
-        plt.show()
+        plt.clf()
+        plt.plot(score)
+        plt.ylabel('game score')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
+        plt.clf()
+        plt.plot(loss)
+        plt.ylabel('entropy loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
     
     def save(self):
         self.global_network.save()
@@ -246,7 +296,7 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue):
+            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue, score_queue,loss_queue):
         super().__init__()
         self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
@@ -256,6 +306,11 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         self.res_queue = res_queue
         self.name = f'{name}'
+        self.res_queue = res_queue
+        self.score_queue = score_queue
+        self.loss_queue = loss_queue
+        self.state_dim = state_dim
+        self.action_dim = action_dim
         
     def pull(self):
         """
@@ -289,6 +344,8 @@ class Worker(mp.Process):
             score = 0
             self.local_network.reset()
             self.pull()
+            best_score=0
+            current_score=0
             while not done:
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
@@ -334,6 +391,12 @@ class Worker(mp.Process):
 
                     actionTuple = ActionTuple()
 
+                    if action==1:
+                        current_score+=1
+                    elif action==2:
+                        current_score-=1
+                    if current_score>best_score:
+                        best_score=current_score
                     action = np.asarray([[action]])
                     
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
@@ -361,11 +424,13 @@ class Worker(mp.Process):
                 self.g_ep.value += 1
             
             self.res_queue.put(score)
+            self.score_queue.put(best_score)
 
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
 
         self.res_queue.put(None)
-
+        self.score_queue.put(None)
+        self.loss_queue.put(None)
         self.save()
 
     def save(self):
