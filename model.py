@@ -8,9 +8,9 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 10000  # Maximum total training episode for master agent
+NUM_GAMES = 100000  # Maximum total training episode for master agent
 MAX_EP    = 10     # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 100     # Maximum step for slave agent to do gradient descent
+MAX_STEP  = 100    # Maximum step for slave agent to do gradient descent
 
 class Network(nn.Module):
     """
@@ -243,6 +243,7 @@ class Agent(mp.Process):
         res = []
         # parallel training
         [w.start() for w in self.workers]
+        pass
         
         # record episode reward to plot
         res = []
@@ -288,6 +289,7 @@ class Agent(mp.Process):
         plt.ylabel('entropy loss')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        plt.close()
     
     def save(self):
         self.global_network.save()
@@ -343,7 +345,7 @@ class Worker(mp.Process):
         while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
-
+            self.local_network.reset()
             self.l_step = 0
             
             score = 0
@@ -410,7 +412,8 @@ class Worker(mp.Process):
                     loss = self.local_network.calc_loss(done)
                     self.loss_queue.put(loss.detach().numpy()) #record loss
                     loss.backward()
-                    self.local_network.reset()
+                    if (self.g_ep != MAX_EP):
+                        self.local_network.reset()
 
                 # update global network (gradient accumulation!)
                 if (self.l_ep % MAX_EP == 0):
