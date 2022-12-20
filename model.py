@@ -9,6 +9,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 import random
+import math
 os.environ["KMP_DUPLICATE_LIB_OK"]="True"
 # Seed
 seed = 1234
@@ -20,7 +21,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 1000  # Maximum training episode for master agent
+NUM_GAMES = 3000  # Maximum training episode for master agent
 MAX_EP = 100     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -210,7 +211,20 @@ class Network(nn.Module):
         total_loss = (critic_loss + actor_loss).mean()
     
         return total_loss
-    
+    def calc_entropy_loss(self, done, lstm_par):
+        states = torch.tensor(self.states, dtype=torch.float)
+        actions = torch.tensor(self.actions, dtype=torch.float)
+
+        returns, pi, values, _ = self.calc_R(done, lstm_par)
+        # pi, values, _ = self.forward(states, lstm_par) # FIXME:
+        values = values.squeeze()
+        # print(f'debug: {values.shape} {returns.shape}')
+        critic_loss = (returns - values) ** 2
+        probs = torch.softmax(pi, dim=1)
+        probs=probs.detach().numpy()
+        probs=np.reshape(probs,(-1,))
+        loss = -sum([p*math.log(p) for p in probs])
+        return loss
     def save(self):
         """
         Save the model parameters into .pt & .txt files
@@ -395,6 +409,7 @@ class Worker(mp.Process):
             self.pull()
             best_score=0
             current_score=0
+            loss_value=0
             while not done:
                 if new_ep:
                     # initialize lstm parameters with zeros
@@ -446,7 +461,9 @@ class Worker(mp.Process):
                     cx = cx.detach()
                     hx = hx.detach()
                     loss = self.local_network.calc_loss(done, (hx, cx))
-                    self.loss_queue.put(loss.detach().numpy())          #record loss
+                    # if done==True:
+                    #     self.loss_queue.put(loss.detach().numpy())          #record loss
+                    loss_value=self.local_network.calc_entropy_loss(done,(hx,cx))
                     self.optimizer.zero_grad()
                     loss.backward(retain_graph=True)
                     self.push()   
@@ -468,7 +485,7 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            
+            self.loss_queue.put(loss_value)
             self.res_queue.put(score)
             self.score_queue.put(best_score)
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
