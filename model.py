@@ -9,6 +9,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 import random
+os.environ["KMP_DUPLICATE_LIB_OK"]="True"
 # Seed
 seed = 1234
 torch.manual_seed(seed)
@@ -19,7 +20,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 10000  # Maximum training episode for master agent
+NUM_GAMES = 1000  # Maximum training episode for master agent
 MAX_EP = 100     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -41,7 +42,10 @@ class Network(nn.Module):
 
         self.state_dim = state_dim
         self.action_dim = action_dim
-
+        self.conv_in=7
+        self.conv_dim=16
+        self.fac = 144
+        self.fc1s, self.fc2s = 64, self.state_dim
         # initialize LSTM
         self.lstm = nn.LSTMCell(state_dim, state_dim, bias=False) # (input_size, hidden_size)
         # self.lstm.bias_ih.data.fill_(0)
@@ -50,22 +54,38 @@ class Network(nn.Module):
         # c0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
 
         # Actor
-        self.net_actor = nn.Sequential(
-            nn.Linear(state_dim, 60),
+        self.action_head = nn.Linear(self.fc2s, action_dim)
+        self.critic_head  = nn.Linear(self.fc2s, 1)
+        self.net = nn.Sequential(
+            # nn.Linear(state_dim, 60),
+            # nn.ReLU(),
+            # nn.Linear(60, 30),
+            # nn.ReLU(),
+            # nn.Linear(30, action_dim)
+            nn.Conv2d(1,self.conv_dim,kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Linear(60, 30),
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(self.conv_dim,self.conv_dim,kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Linear(30, action_dim)
+            nn.Flatten(),
+            nn.Linear(self.fac, self.fc1s),
+            nn.ReLU(),
+            nn.Linear(self.fc1s , self.fc2s),
+            nn.ReLU(),
+            nn.Linear(self.fc2s, self.fc2s)
         )
+        # self.net_actor_linear = nn.Linear(25, action_dim, bias=False)
         # self.net_actor = nn.Linear(state_dim, action_dim, bias=False)
 
         # Critic
-        self.net_critic = nn.Sequential(
-            nn.Linear(state_dim, 30),
-            nn.ReLU(),
-            nn.Linear(30, 1)
-        )
-        # self.net_critic = nn.Linear(state_dim, 1, bias=False)
+        # self.net_critic_cnn = nn.Sequential(
+        #     # nn.Linear(state_dim, 30),
+        #     # nn.ReLU(),
+        #     # nn.Linear(30, 1)
+        #     nn.Conv2d(1,1,kernel_size=3),
+        #     nn.Batch()
+        # )
+        # self.net_critic_linear = nn.Linear(25, 1, bias=False)
 
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
@@ -96,16 +116,23 @@ class Network(nn.Module):
             value  -- value of critic
         """
         # lstm
+        #(hx, cx) = lstm_par
+        # x = state.view(-1, self.state_dim)
+        # hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
+        
+        # state = hx
+        value = self.net(state.reshape((1,1,7,7)))
+        value=self.critic_head(value)
+        logits = self.net(state.reshape((1,1,7,7)))
         (hx, cx) = lstm_par
         x = state.view(-1, self.state_dim)
         hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
-        
-        state = hx
+        logits = hx
+        logits=nn.functional.relu(logits)
+        logits=self.action_head(logits)
 
-        logits = self.net_actor(state)
-        value = self.net_critic(state)
 
-        return logits, value, (hx, cx) # return logits, value and lstm parameters to update
+        return logits, value,(hx, cx) # return logits, value and lstm parameters to update
 
     def record(self, state, action, reward):
         """
@@ -134,7 +161,7 @@ class Network(nn.Module):
             action -- the action with MAXIMUM probability
         """
         state = torch.tensor(state, dtype=torch.float)
-        pi, v, (hx, cx) = self.forward(state, lstm_par)
+        pi, v , (hx, cx)= self.forward(state, lstm_par)
         probs = torch.softmax(pi, dim=1)
         dist = torch.distributions.Categorical(probs)
         action = dist.sample().numpy()[0]
@@ -191,23 +218,23 @@ class Network(nn.Module):
         if not os.path.isdir(f'.\model\{self.timestamp}'):
             os.mkdir(f'.\model\{self.timestamp}')
         
-        torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
-        torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
+        # torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
+        # torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
-            fh.write("Model's state_dict:\n")
-            for param_tensor in self.net_actor.state_dict():
-                fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
+        # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.net_actor.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
-            fh.write("Model's state_dict:\n")
-            for param_tensor in self.net_critic.state_dict():
-                fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
+        # with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.net_critic.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
-        with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
-            fh.write("Model's state_dict:\n")
-            for param_tensor in self.lstm.state_dict():
-                fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
+        # with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.lstm.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
         with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
             fh.write("Index \t\t action \t reward:\n")
@@ -222,9 +249,9 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             fh.write(f'============================================================\n')
-            fh.write(f'lstm:\n{self.lstm}\n')
-            fh.write(f'actor network:\n{self.net_actor}\n')
-            fh.write(f'critic network:\n{self.net_critic}\n')
+            # fh.write(f'lstm:\n{self.lstm}\n')
+            # fh.write(f'actor network:\n{self.net_actor}\n')
+            # fh.write(f'critic network:\n{self.net_critic}\n')
 
 class Agent(mp.Process):
     """
