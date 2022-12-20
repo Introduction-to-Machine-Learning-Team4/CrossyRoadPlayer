@@ -1,0 +1,6 @@
+timestamp: 2022-12-20-16-13-00
+state dimension: 49
+action dimension: 5
+Maximum training episode for master agent: 1000
+Maximum training episode for slave agent: 100
+============================================================
