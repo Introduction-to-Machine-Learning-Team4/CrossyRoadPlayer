@@ -46,7 +46,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 10, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(350, 256),
+            nn.Linear(1050, 256),
             nn.ReLU(),
             nn.Linear(256, 5)
         )
@@ -56,7 +56,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 3, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(105, 1)
+            nn.Linear(315, 1)
         )
 
         # load models
@@ -92,7 +92,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 7)
+            s = state[i,:,:].reshape(1, 5, 21)
             if i == 0:            
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -389,7 +389,10 @@ class Worker(mp.Process):
         """
         Initilize Unity environment and start training
         """
-        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
+        if int(self.name) == 0:
+            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
+        else:
+            self.env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
         self.pull()
@@ -422,7 +425,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,7)
+                    state = state.reshape(1,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
@@ -441,7 +444,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,7) 
+                    state = state.reshape(1,7,21) 
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     action, value = self.local_network.take_action(state)
