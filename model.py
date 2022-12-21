@@ -250,12 +250,12 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
-                fh.write(f'Loss calculation method: MC')
+                fh.write(f'Loss calculation method: MC\n')
             else:
-                fh.write(f'Loss calculation method: TD')
-            fh.write(f'GAMMA: {GAMMA}')
-            fh.write(f'LAMBDA: {LAMBDA}')
-            fh.write(f'Learning rate: {LR}')
+                fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'GAMMA: {GAMMA}\n')
+            fh.write(f'LAMBDA: {LAMBDA}\n')
+            fh.write(f'Learning rate: {LR}\n')
             fh.write(f'============================================================\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
