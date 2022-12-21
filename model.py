@@ -92,7 +92,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 21)
+            s = state[i,:,:].reshape(1, 5, 7)
             if i == 0:            
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -237,10 +237,10 @@ class Network(nn.Module):
         #     for param_tensor in self.lstm.state_dict():
         #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
-            fh.write("Index \t\t action \t reward:\n")
-            for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
-                fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+        # with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
+        #     fh.write("Index \t\t action \t reward:\n")
+        #     for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
+        #         fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
 
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
@@ -250,12 +250,12 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
-                fh.write(f'Loss calculation method: MC')
+                fh.write(f'Loss calculation method: MC\n')
             else:
-                fh.write(f'Loss calculation method: TD')
-            fh.write(f'GAMMA: {GAMMA}')
-            fh.write(f'LAMBDA: {LAMBDA}')
-            fh.write(f'Learning rate: {LR}')
+                fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'GAMMA: {GAMMA}\n')
+            fh.write(f'LAMBDA: {LAMBDA}\n')
+            fh.write(f'Learning rate: {LR}\n')
             fh.write(f'============================================================\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
@@ -296,35 +296,35 @@ class Agent(mp.Process):
                                     for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
-        
+
         # record episode reward to plot
         res   = []
         score = []
         # loss  = []
-        
+          
         while True:
             r = self.res_queue.get()
             if r is not None:
                 res.append(r)
             else:
                 break
-        
+        print('checkpoint5')
         while True:
             sc = self.score_queue.get()
             if sc is not None:
                 score.append(sc)
             else:
                 break
-
+        print('checkpoint6')
         # while True:
         #     los = self.loss_queue.get()
         #     if los is not None:
         #         loss.append(los)
         #     else:
         #         break
-        [w.join() for w in self.workers]
-        # [w.save() for w in self.workers]
 
+        [w.join() for w in self.workers]
+        
         # plot
         import matplotlib.pyplot as plt
         plt.plot(res)
@@ -402,7 +402,8 @@ class Worker(mp.Process):
         while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
-            self.local_network.reset()
+            # if done:
+            #     self.local_network.reset()
             self.l_step = 0
             
             score = 0
@@ -425,7 +426,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21)
+                    state = state.reshape(1,7,7)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
@@ -444,7 +445,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21) 
+                    state = state.reshape(1,7,7) 
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     action, value = self.local_network.take_action(state)
@@ -475,7 +476,6 @@ class Worker(mp.Process):
                         # self.loss_queue.put(loss.detach().numpy()) #record loss
                         self.local_network.reset()
                         loss.backward()
-                        
 
                     # update global network (gradient accumulation!)
                     if (self.l_ep % MAX_EP == 0):
@@ -515,7 +515,6 @@ class Worker(mp.Process):
         Save the current model
         """
         self.local_network.save()
-
 
 if __name__ == '__main__':
     None
