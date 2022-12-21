@@ -9,8 +9,16 @@ import datetime
 import os
 
 NUM_GAMES = 10000  # Maximum total training episode for master agent
-MAX_EP    = 10     # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 100    # Maximum step for slave agent to do gradient descent
+MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
+
+STATE_SHRINK = True
+GRADIENT_ACC = True
+MC = False
+TD = not MC
+GAMMA  = 0.90
+LAMBDA = 0.95
+LR = 1e-5
 
 class Network(nn.Module):
     """
@@ -33,22 +41,22 @@ class Network(nn.Module):
         self.action_dim = action_dim
    
         # Actor
-        # FIXME: Adjust the shape
+        # FIXME: Adjust the shape for different state size
         self.net_actor = nn.Sequential(
             nn.Conv2d(1, 10, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(1470, 256),
+            nn.Linear(1050, 256),
             nn.ReLU(),
             nn.Linear(256, 5)
         )
         # Critic
-        # FIXME: Adjust the shape
+        # FIXME: Adjust the shape for different state size
         self.net_critic = nn.Sequential(
             nn.Conv2d(1, 3, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(441, 1)
+            nn.Linear(315, 1)
         )
 
         # load models
@@ -61,6 +69,10 @@ class Network(nn.Module):
         self.states  = np.array([])
         self.actions = []
         self.rewards = []
+        
+        self.values     = []
+        self.entropies  = []
+        self.log_probs  = []
 
         # self.scores  = []
 
@@ -78,18 +90,18 @@ class Network(nn.Module):
         """
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
-        # FIXME: Adjust the shape
+        # FIXME: Adjust the shape for different state size
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 21, 7)
+            s = state[i,:,:].reshape(1, 5, 21)
             if (i == 0):
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
             else:
-                logits = torch.vstack((logits, self.net_actor(s)))
-                value  = torch.vstack((value, self.net_critic(s))) 
+                logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
+                value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
         return logits, value
 
-    def record(self, state, action, reward):
+    def record(self, state, action, reward, value):
         """
         Record <state, action, reward> after taking this action
         """
@@ -99,6 +111,7 @@ class Network(nn.Module):
             self.states = np.append(self.states, state, axis=0)
         self.actions.append(action)
         self.rewards.append(reward)
+        self.values.append(value)
     
     def reset(self):
         """
@@ -118,15 +131,21 @@ class Network(nn.Module):
         state = torch.tensor(state, dtype=torch.float)
         pi, v = self.forward(state)
         
-        probs = torch.softmax(pi, dim=0)
+        probs = torch.softmax(pi.detach(), dim=0)
+        log_probs = torch.log_softmax(pi.detach(), dim=0)
         dist = torch.distributions.Categorical(probs)
+        # print(f'For debug usage: probs={probs}')
+
+        entropy = - (log_probs * probs).sum(-1)
+        self.entropies.append(entropy)
+        self.log_probs.append(log_probs)
         
         action = dist.sample().numpy()
-        return action
+        return action , v
 
-    def calc_R(self, done):
+    def calc_R(self, done, normalize = False):
         """
-        TODO: Try GAE
+        Monte-Carlo method implementation
         """
         states = torch.tensor(self.states, dtype=torch.float)
         
@@ -141,11 +160,14 @@ class Network(nn.Module):
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
+        if(normalize == True):
+            batch_return = (batch_return - batch_return.mean()) / batch_return.std()
+        
         return batch_return
 
     def calc_loss(self, done):
         """
-        TODO: 
+        Monte-Carlo method implementation
         """
         states = torch.tensor(self.states, dtype=torch.float)
         actions = torch.tensor(self.actions, dtype=torch.float)
@@ -154,9 +176,9 @@ class Network(nn.Module):
 
         pi, values = self.forward(states)
         values = values.squeeze()
-        # print(f'debug: {values.shape} {returns.shape}')
+        
         critic_loss = (returns - values) ** 2
-        # print(f'pi: {pi} {pi.shape}')
+        
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
         log_probs = dist.log_prob(actions)
@@ -164,6 +186,30 @@ class Network(nn.Module):
 
         total_loss = (critic_loss + actor_loss).mean()
     
+        return total_loss
+
+    def calc_loss_v2(self, done):
+        """
+        Temporal difference method implementation
+        """
+        R = torch.zeros((1, 1), dtype=torch.float)
+        gae = torch.zeros((1, 1), dtype=torch.float)
+        actor_loss = 0
+        critic_loss = 0
+        entropy_loss = 0
+        next_value = R
+
+        for value, log_policy, reward, entropy in list(zip(self.values, self.log_probs, 
+                                                        self.rewards, self.entropies))[::-1]:
+            gae = gae * self.gamma * LAMBDA + reward + self.gamma * next_value.clone() - value.clone()
+            next_value = value.clone()
+            actor_loss = actor_loss + log_policy * gae
+            R = R * self.gamma + reward
+            critic_loss = critic_loss + (R - value) ** 2 / 2
+            entropy_loss = entropy_loss + entropy
+        
+        total_loss = (- actor_loss + critic_loss - 0.5 * entropy_loss).mean()
+        
         return total_loss
     
     def save(self):
@@ -203,6 +249,13 @@ class Network(nn.Module):
             fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
+            if MC:
+                fh.write(f'Loss calculation method: MC')
+            else:
+                fh.write(f'Loss calculation method: TD')
+            fh.write(f'GAMMA: {GAMMA}')
+            fh.write(f'LAMBDA: {LAMBDA}')
+            fh.write(f'Learning rate: {LR}')
             fh.write(f'============================================================\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
@@ -217,12 +270,12 @@ class Agent(mp.Process):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.time_stamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S")
-        self.global_network = Network(state_dim, action_dim, gamma=0.95, name='master', 
+        self.global_network = Network(state_dim, action_dim, gamma=GAMMA, name='master', 
             timestamp=self.time_stamp,
             load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
-        self.opt = SharedAdam(self.global_network.parameters(), lr=1e-5, betas=(0.92, 0.999)) # global optimizer
+        self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
             mp.Value('i', 0), mp.Queue(), mp.Queue(), mp.Queue()
 
@@ -237,20 +290,18 @@ class Agent(mp.Process):
         Initilize all slave agents and start parallel training
         """
         self.workers = [Worker(self.global_network, self.opt, 
-                            self.state_dim, self.action_dim, 0.9, 
-                            self.global_ep, i, self.global_network.timestamp, self.res_queue,self.score_queue,self.loss_queue) 
-                                for i in range(mp.cpu_count() - 0)]
-        res = []
+                                self.state_dim, self.action_dim, GAMMA, 
+                                self.global_ep, i, self.global_network.timestamp, 
+                                self.res_queue,self.score_queue,self.loss_queue) 
+                                    for i in range(mp.cpu_count() - 0)]
         # parallel training
-        print('checkpoint3')
         [w.start() for w in self.workers]
-        print('checkpoint4')
-        
+
         # record episode reward to plot
         res   = []
         score = []
-        loss  = []
-        
+        # loss  = []
+          
         while True:
             r = self.res_queue.get()
             if r is not None:
@@ -273,7 +324,7 @@ class Agent(mp.Process):
         #         break
 
         [w.join() for w in self.workers]
-        print('checkpoint7')
+        
         # plot
         import matplotlib.pyplot as plt
         plt.plot(res)
@@ -281,19 +332,18 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
         plt.close()
-        print('checkpoint8')
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
         plt.close()
-        print('checkpoint9')
+        '''
         # plt.plot(loss)
         # plt.ylabel('entropy loss')
         # plt.xlabel('Step')
         # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         # plt.close()
-        # print('checkpoint0')
+        '''
 
     def save(self):
         self.global_network.save()
@@ -362,8 +412,8 @@ class Worker(mp.Process):
                 step = None
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
-                    state = np.array(step.obs) # [:,:49] ## Unity return
-                    # FIXME: Adjust the shape
+                    state = np.array(step.obs) ## Unity return
+                    # FIXME: Adjust the shape for different state size
                     state = np.vstack((
                         state[126:147],
                         state[105:126],
@@ -373,23 +423,17 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    # state = np.vstack((
-                    #     state[42:49],
-                    #     state[35:42],
-                    #     state[28:35],
-                    #     state[21:28],
-                    #     state[14:21],
-                    #     state[7:14],
-                    #     state[0:7],
-                    # ))
-                    state = state.reshape(1,21,7)
-                    # state = state[:,2:7,:]
+                    state = state.reshape(1,7,21)
+
+                    if STATE_SHRINK:
+                        state = state[:,2:7,:]
                     done = True
+                    action, value = self.local_network.take_action(state)
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
                     state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
-                    # FIXME: Adjust the shape
+                    # FIXME: Adjust the shape for different state size
                     state = np.vstack((
                         state[126:147],
                         state[105:126],
@@ -399,27 +443,19 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    # state = np.vstack((
-                    #     state[42:49],
-                    #     state[35:42],
-                    #     state[28:35],
-                    #     state[21:28],
-                    #     state[14:21],
-                    #     state[7:14],
-                    #     state[0:7],
-                    # ))
-                    state = state.reshape(1,21,7)
-                    # state = state[:,2:7,:]
-                    action = self.local_network.take_action(state)
+                    state = state.reshape(1,7,21)
+                    if STATE_SHRINK:
+                        state = state[:,2:7,:]
+                    action, value = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
 
-                    if action==1:
-                        current_score+=1
-                    elif action==2:
-                        current_score-=1
-                    if current_score>best_score:
-                        best_score=current_score
+                    if action == 1:
+                        current_score += 1
+                    elif action == 2:
+                        current_score -= 1
+                    if current_score > best_score:
+                        best_score = current_score
                     action = np.asarray([[action]])
                     
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
@@ -427,22 +463,32 @@ class Worker(mp.Process):
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
                 score += reward
-                self.local_network.record(state, action, reward)
+                self.local_network.record(state, action, reward, value.detach())
                 
-                # Do the gradient descent but not update global network directly
-                if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
-                    # print(f'For debug usage: self.l_ep={self.l_ep}')
-                    loss = self.local_network.calc_loss(done)
-                    # self.loss_queue.put(loss.detach().numpy()) #record loss
-                    loss.backward()
-                    self.local_network.reset()
+                if GRADIENT_ACC :
+                    # Do the gradient descent but not update global network directly
+                    if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
+                        # print(f'For debug usage: self.l_ep={self.l_ep}')
+                        loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
+                        loss.requires_grad = True
+                        # self.loss_queue.put(loss.detach().numpy()) #record loss
+                        self.local_network.reset()
+                        loss.backward()
 
-                # update global network (gradient accumulation!)
-                if (self.l_ep % MAX_EP == 0):
-                    self.push()   
-                    self.optimizer.step()
-                    self.pull()
-                    self.optimizer.zero_grad()
+                    # update global network (gradient accumulation!)
+                    if (self.l_ep % MAX_EP == 0):
+                        self.push()   
+                        self.optimizer.step()
+                        self.pull()
+                        self.optimizer.zero_grad()
+                else:
+                    if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True: 
+                        loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
+                        self.optimizer.zero_grad()
+                        loss.backward(retain_graph=True)
+                        self.push()   
+                        self.optimizer.step()
+                        self.pull()
 
                 self.env.step()
 
@@ -467,7 +513,6 @@ class Worker(mp.Process):
         Save the current model
         """
         self.local_network.save()
-
 
 if __name__ == '__main__':
     None
