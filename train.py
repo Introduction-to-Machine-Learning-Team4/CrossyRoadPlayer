@@ -4,8 +4,10 @@ def train():
     try:
         agent = Agent(67, 5)
         agent.start()
-        agent.join()
         agent.save()
+        print('checkpoint1')
+        agent.join()
+        print('checkpoint2')
     except Exception as e:
         agent.close()
         raise e

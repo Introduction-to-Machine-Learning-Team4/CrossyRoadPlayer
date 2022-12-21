@@ -8,7 +8,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 100000  # Maximum total training episode for master agent
+NUM_GAMES = 10000  # Maximum total training episode for master agent
 MAX_EP    = 10     # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100    # Maximum step for slave agent to do gradient descent
 
@@ -38,7 +38,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 10, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(350, 256),
+            nn.Linear(1470, 256),
             nn.ReLU(),
             nn.Linear(256, 5)
         )
@@ -48,7 +48,7 @@ class Network(nn.Module):
             nn.Conv2d(1, 3, (1,1)),
             nn.Flatten(0,-1),
             nn.ReLU(),
-            nn.Linear(105, 1)
+            nn.Linear(441, 1)
         )
 
         # load models
@@ -80,7 +80,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 7)
+            s = state[i,:,:].reshape(1, 21, 7)
             if (i == 0):
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -191,10 +191,10 @@ class Network(nn.Module):
         #     for param_tensor in self.lstm.state_dict():
         #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
-            fh.write("Index \t\t action \t reward:\n")
-            for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
-                fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+        # with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
+        #     fh.write("Index \t\t action \t reward:\n")
+        #     for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
+        #         fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
 
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
@@ -242,13 +242,14 @@ class Agent(mp.Process):
                                 for i in range(mp.cpu_count() - 0)]
         res = []
         # parallel training
+        print('checkpoint3')
         [w.start() for w in self.workers]
-        pass
+        print('checkpoint4')
         
         # record episode reward to plot
-        res = []
-        score=[]
-        loss=[]
+        res   = []
+        score = []
+        loss  = []
         
         while True:
             r = self.res_queue.get()
@@ -256,40 +257,43 @@ class Agent(mp.Process):
                 res.append(r)
             else:
                 break
-        
+        print('checkpoint5')
         while True:
             sc = self.score_queue.get()
             if sc is not None:
                 score.append(sc)
             else:
                 break
+        print('checkpoint6')
+        # while True:
+        #     los = self.loss_queue.get()
+        #     if los is not None:
+        #         loss.append(los)
+        #     else:
+        #         break
 
-        while True:
-            los = self.loss_queue.get()
-            if los is not None:
-                loss.append(los)
-            else:
-                break
         [w.join() for w in self.workers]
-        # [w.save() for w in self.workers]
-
+        print('checkpoint7')
         # plot
         import matplotlib.pyplot as plt
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
-        plt.clf()
+        plt.close()
+        print('checkpoint8')
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
-        plt.clf()
-        plt.plot(loss)
-        plt.ylabel('entropy loss')
-        plt.xlabel('Step')
-        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         plt.close()
+        print('checkpoint9')
+        # plt.plot(loss)
+        # plt.ylabel('entropy loss')
+        # plt.xlabel('Step')
+        # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        # plt.close()
+        # print('checkpoint0')
 
     def save(self):
         self.global_network.save()
@@ -345,7 +349,8 @@ class Worker(mp.Process):
         while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
-            self.local_network.reset()
+            # if done:
+            #     self.local_network.reset()
             self.l_step = 0
             
             score = 0
@@ -360,16 +365,25 @@ class Worker(mp.Process):
                     state = np.array(step.obs) # [:,:49] ## Unity return
                     # FIXME: Adjust the shape
                     state = np.vstack((
-                        state[42:49],
-                        state[35:42],
-                        state[28:35],
-                        state[21:28],
-                        state[14:21],
-                        state[7:14],
-                        state[0:7],
+                        state[126:147],
+                        state[105:126],
+                        state[84:105],
+                        state[63:84],
+                        state[42:63],
+                        state[21:42],
+                        state[0:21],
                     ))
-                    state = state.reshape(1,7,7)
-                    state = state[:,2:7,:]
+                    # state = np.vstack((
+                    #     state[42:49],
+                    #     state[35:42],
+                    #     state[28:35],
+                    #     state[21:28],
+                    #     state[14:21],
+                    #     state[7:14],
+                    #     state[0:7],
+                    # ))
+                    state = state.reshape(1,21,7)
+                    # state = state[:,2:7,:]
                     done = True
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
@@ -377,16 +391,25 @@ class Worker(mp.Process):
                     state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
                     # FIXME: Adjust the shape
                     state = np.vstack((
-                        state[42:49],
-                        state[35:42],
-                        state[28:35],
-                        state[21:28],
-                        state[14:21],
-                        state[7:14],
-                        state[0:7],
+                        state[126:147],
+                        state[105:126],
+                        state[84:105],
+                        state[63:84],
+                        state[42:63],
+                        state[21:42],
+                        state[0:21],
                     ))
-                    state = state.reshape(1,7,7)
-                    state = state[:,2:7,:]
+                    # state = np.vstack((
+                    #     state[42:49],
+                    #     state[35:42],
+                    #     state[28:35],
+                    #     state[21:28],
+                    #     state[14:21],
+                    #     state[7:14],
+                    #     state[0:7],
+                    # ))
+                    state = state.reshape(1,21,7)
+                    # state = state[:,2:7,:]
                     action = self.local_network.take_action(state)
 
                     actionTuple = ActionTuple()
@@ -410,10 +433,9 @@ class Worker(mp.Process):
                 if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
                     # print(f'For debug usage: self.l_ep={self.l_ep}')
                     loss = self.local_network.calc_loss(done)
-                    self.loss_queue.put(loss.detach().numpy()) #record loss
+                    # self.loss_queue.put(loss.detach().numpy()) #record loss
                     loss.backward()
-                    if (self.g_ep != MAX_EP):
-                        self.local_network.reset()
+                    self.local_network.reset()
 
                 # update global network (gradient accumulation!)
                 if (self.l_ep % MAX_EP == 0):
