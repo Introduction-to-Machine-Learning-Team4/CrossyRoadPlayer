@@ -1,6 +1,7 @@
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
@@ -28,24 +29,33 @@ class Network(nn.Module):
         """
         super().__init__()
 
+        # from torchsummary import summary
+
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.conv2 = nn.Conv2d(32, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.lstm = nn.LSTMCell(32*7*7, 67) # (input_size, hidden_size)
+
         # Actor
         # FIXME: Adjust the shape
-        self.net_actor = nn.Sequential(
-            nn.Conv2d(1, 10, (1,1)),
-            nn.Flatten(0,-1),
-            nn.ReLU(),
-            nn.Linear(350, 256),
-            nn.ReLU(),
-            nn.Linear(256, 5)
-        )
+        self.net_actor = nn.Linear(67, action_dim)
+        # print(self.net_actor)
+        # self.net_actor = nn.Sequential(
+        #     nn.Conv2d(1, 10, (1,1)),
+        #     nn.Flatten(0,-1),
+        #     nn.ReLU(),
+        #     nn.Linear(350, 256),
+        #     nn.ReLU(),
+        #     nn.Linear(256, 5)
+        # )
         # Critic
         # FIXME: Adjust the shape
-        self.net_critic = nn.Sequential(
-            nn.Conv2d(1, 3, (1,1)),
-            nn.Flatten(0,-1),
-            nn.ReLU(),
-            nn.Linear(105, 1)
-        )
+        self.net_critic = nn.Linear(67, 1)
+        # self.net_critic = nn.Sequential(
+        #     nn.Conv2d(1, 3, (1,1)),
+        #     nn.Flatten(0,-1),
+        #     nn.ReLU(),
+        #     nn.Linear(105, 1)
+        # )
 
         # load models
         if(load == True):
@@ -63,7 +73,7 @@ class Network(nn.Module):
         self.name = name
         self.timestamp = timestamp
 
-    def forward(self, state): 
+    def forward(self, state, lstm_par): 
         """
         Forward the state into neural networks
         Argument:
@@ -75,15 +85,32 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape
-        for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 7)
-            if (i == 0):
-                logits = self.net_actor(s)
-                value  = self.net_critic(s)
-            else:
-                logits = torch.vstack((logits, self.net_actor(s)))
-                value  = torch.vstack((value, self.net_critic(s))) 
-        return logits, value
+        # for i in range(state.shape[0]):
+        #     s = state[i,:,:].reshape(1, 5, 7)
+        #     s = self.conv(s)
+        #     s = s.view(-1, 32*3*3)
+        #     if (i == 0):
+        #         logits = self.net_actor(s)
+        #         value  = self.net_critic(s)
+        #     else:
+        #         logits = torch.vstack((logits, self.net_actor(s)))
+        #         value  = torch.vstack((value, self.net_critic(s))) 
+        (hx, cx) = lstm_par
+        print("state 1 size: " + str(state.size()))
+        state = F.relu(self.conv1(state))
+        print("state 2 size: " + str(state.size()))
+        state = F.relu(self.conv2(state))
+        print("state 3 size: " + str(state.size()))
+        state = state.view(-1, 32*7*7)
+        print("state 4 size: " + str(state.size()))
+        hx, cx = self.lstm(state, (hx, cx))
+        print("state 5 size: " + str(state.size()))
+        state = hx
+
+        logits = self.net_actor(state)
+        value = self.net_critic(state)
+
+        return logits, value, (hx, cx)
 
     def record(self, state, action, reward):
         """
@@ -104,7 +131,7 @@ class Network(nn.Module):
         self.actions = []
         self.rewards = []
 
-    def take_action(self, state):
+    def take_action(self, state, lstm_par):
         """
         Argument:
             state -- input state received from Unity environment 
@@ -112,24 +139,24 @@ class Network(nn.Module):
             action -- the action with MAXIMUM probability
         """
         state = torch.tensor(state, dtype=torch.float)
-        pi, v = self.forward(state)
+        pi, v, (hx, cx)= self.forward(state, lstm_par)
         # print(f'pi: {pi} {pi.shape}')
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
         # print(dist.sample().numpy())
         action = dist.sample().numpy()
-        return action
+        return action, (hx, cx)
 
-    def calc_R(self, done):
+    def calc_R(self, done, lstm_par):
         """
         TODO: 
         """
         # print(self.states.shape)
         states = torch.tensor(self.states, dtype=torch.float)
         # print(states.shape)
-        _, v = self.forward(states)
+        pi, v, (hx, cx) = self.forward(states[-1], lstm_par)
 
-        R = v[-1] * (1 - int(done))
+        R = v * (1 - int(done))
 
         batch_return = []
         for reward in self.rewards[::-1]:
@@ -138,18 +165,18 @@ class Network(nn.Module):
         batch_return.reverse()
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
-        return batch_return
+        return batch_return, pi, v, (hx, cx)
 
-    def calc_loss(self, done):
+    def calc_loss(self, done, lstm_par):
         """
         TODO: 
         """
         states = torch.tensor(self.states, dtype=torch.float)
         actions = torch.tensor(self.actions, dtype=torch.float)
 
-        returns = self.calc_R(done)
+        returns, pi, values, _ = self.calc_R(done, lstm_par)
 
-        pi, values = self.forward(states)
+        # pi, values = self.forward(states)
         values = values.squeeze()
         # print(f'debug: {values.shape} {returns.shape}')
         critic_loss = (returns - values) ** 2
@@ -256,6 +283,8 @@ class Worker(mp.Process):
         self.gamma = gamma          # reward discount factor
         self.res_queue = res_queue
         self.name = f'{name}'
+        self.state_dim = state_dim
+        self.action_dim = action_dim
         
     def pull(self):
         """
@@ -283,30 +312,42 @@ class Worker(mp.Process):
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
+            new_ep = True
             done = False
             self.l_ep = 0
             self.env.reset()
             score = 0
             self.local_network.reset()
             self.pull()
+
             while not done:
+                if new_ep:
+                    # initialize lstm parameters with zeros
+                    (hx, cx) = (torch.zeros(1, self.state_dim), torch.zeros(1, self.state_dim)) # (batch_size, hidden_size)
+                    # or with random values
+                    # (hx, cx) = (torch.radn(1, self.state_dim), torch.radn(1, self.state_dim)) # (batch_size, hidden_size)
+                    new_ep = False
+
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
+
+                
+
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
                     state = np.array(step.obs) # [:,:49] ## Unity return
                     # FIXME: Adjust the shape
-                    state = np.vstack((
-                        state[42:49],
-                        state[35:42],
-                        state[28:35],
-                        state[21:28],
-                        state[14:21],
-                        state[7:14],
-                        state[0:7],
-                    ))
+                    # state = np.vstack((
+                    #     state[42:49],
+                    #     state[35:42],
+                    #     state[28:35],
+                    #     state[21:28],
+                    #     state[14:21],
+                    #     state[7:14],
+                    #     state[0:7],
+                    # ))
                     state = state.reshape(1,7,7)
-                    state = state[:,2:7,:]
+                    # state = state[:,2:7,:]
                     # state = state[2:6,:].reshape(1,4,7)
                     # print(state)
                     # print('\n')
@@ -316,21 +357,21 @@ class Worker(mp.Process):
                     # Add noise
                     state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
                     # FIXME: Adjust the shape
-                    state = np.vstack((
-                        state[42:49],
-                        state[35:42],
-                        state[28:35],
-                        state[21:28],
-                        state[14:21],
-                        state[7:14],
-                        state[0:7],
-                    ))
+                    # state = np.vstack((
+                    #     state[42:49],
+                    #     state[35:42],
+                    #     state[28:35],
+                    #     state[21:28],
+                    #     state[14:21],
+                    #     state[7:14],
+                    #     state[0:7],
+                    # ))
                     state = state.reshape(1,7,7)
-                    state = state[:,2:7,:]
+                    # state = state[:,2:7,:] # (1, 5, 7)
                     # state = state[2:6,:].reshape(1,4,7)
                     # print(state)
                     # print('\n')
-                    action = self.local_network.take_action(state)
+                    action, (hx, cx) = self.local_network.take_action(state, (hx, cx))
 
                     actionTuple = ActionTuple()
 
@@ -345,9 +386,12 @@ class Worker(mp.Process):
                 
                 if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True:
                     # print(f'For debug usage: self.l_ep={self.l_ep}')
-                    loss = self.local_network.calc_loss(done)
+                    # detach current lstm parameters
+                    cx = cx.detach()
+                    hx = hx.detach()
+                    loss = self.local_network.calc_loss(done, (hx, cx))
                     self.optimizer.zero_grad()
-                    loss.backward()
+                    loss.backward(retain_graph=True)
                     self.push()   
                     self.optimizer.step()
                     self.pull()
