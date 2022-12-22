@@ -8,9 +8,9 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 100000  # Maximum total training episode for master agent
-MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
+NUM_GAMES = 1e5      # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 100      # Maximum step for slave agent to accumulate gradient
+MAX_EP    = 10
 
 STATE_SHRINK = True
 GRADIENT_ACC = True
@@ -292,16 +292,14 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                                 self.state_dim, self.action_dim, GAMMA, 
                                 self.global_ep, i, self.global_network.timestamp, 
-                                self.res_queue,self.score_queue,self.loss_queue) 
+                                self.res_queue, self.score_queue, self.loss_queue) 
                                     for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
-
-        # record episode reward to plot
+        # record episode reward, score to plot
         res   = []
         score = []
         # loss  = []
-          
         while True:
             r = self.res_queue.get()
             if r is not None:
@@ -316,16 +314,15 @@ class Agent(mp.Process):
             else:
                 break
         print('checkpoint6')
+        '''
         # while True:
         #     los = self.loss_queue.get()
         #     if los is not None:
         #         loss.append(los)
         #     else:
         #         break
-
-        [w.join() for w in self.workers]
-        
         # plot
+        '''
         import matplotlib.pyplot as plt
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
@@ -344,6 +341,8 @@ class Agent(mp.Process):
         # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         # plt.close()
         '''
+        [w.join() for w in self.workers]
+        self.save()
 
     def save(self):
         self.global_network.save()
