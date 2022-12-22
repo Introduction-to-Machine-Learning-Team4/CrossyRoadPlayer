@@ -8,7 +8,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 10000  # Maximum total training episode for master agent
+NUM_GAMES = 100000  # Maximum total training episode for master agent
 MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
 
@@ -92,7 +92,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 7)
+            s = state[i,:,:].reshape(1, 5, 21)
             if i == 0:            
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -426,7 +426,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,7)
+                    state = state.reshape(1,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
@@ -445,7 +445,7 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,7) 
+                    state = state.reshape(1,7,21) 
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     action, value = self.local_network.take_action(state)
