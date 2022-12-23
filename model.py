@@ -40,7 +40,7 @@ class Network(nn.Module):
         self.state_dim = state_dim
         self.action_dim = action_dim
 
-        self.conv1 = nn.Conv2d(1, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.conv1 = nn.Conv2d(4, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
         self.conv2 = nn.Conv2d(32, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
         self.lstm = nn.LSTMCell(32 * 5 * 21, 67) # (input_size, hidden_size)
    
@@ -458,7 +458,11 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21)
+                    state = np.hstack(((np.where(state == -1, 1, 0)), 
+                                       (np.where(state ==  0, 1, 0)), 
+                                       (np.where(state ==  1, 1, 0)),
+                                       (np.where(state ==  2, 1, 0))))
+                    state = state.reshape(4,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
@@ -466,7 +470,7 @@ class Worker(mp.Process):
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
-                    state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
+                    state = np.array(step.obs) # + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
                     # FIXME: Adjust the shape for different state size
                     state = np.vstack((
                         state[126:147],
@@ -477,7 +481,17 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21) 
+                    # print(state)
+                    # print(np.where(state == -1))
+                    # print(f'{np.where(state == -1).shape}\n')
+                    # print(f'{np.where(state ==  0).shape}\n')
+                    # print(f'{np.where(state ==  1).shape}\n')
+                    # print(f'{np.where(state ==  2).shape}\n')
+                    state = np.hstack(((np.where(state == -1, 1, 0)), 
+                                       (np.where(state ==  0, 1, 0)), 
+                                       (np.where(state ==  1, 1, 0)),
+                                       (np.where(state ==  2, 1, 0))))
+                    state = state.reshape(4,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
@@ -504,7 +518,8 @@ class Worker(mp.Process):
                     if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
                         # print(f'For debug usage: self.l_ep={self.l_ep}')
                         loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
-                        loss.requires_grad = True
+                        if TD:
+                            loss.requires_grad = True
                         # self.loss_queue.put(loss.detach().numpy()) #record loss
                         self.local_network.reset()
                         loss.backward()
