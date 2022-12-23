@@ -8,7 +8,7 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 100000  # Maximum total training episode for master agent
+NUM_GAMES = 100  # Maximum total training episode for master agent
 MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
 
@@ -39,25 +39,31 @@ class Network(nn.Module):
 
         self.state_dim = state_dim
         self.action_dim = action_dim
+
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.conv2 = nn.Conv2d(32, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.lstm = nn.LSTMCell(32 * 5 * 21, 67) # (input_size, hidden_size)
    
         # Actor
         # FIXME: Adjust the shape for different state size
-        self.net_actor = nn.Sequential(
-            nn.Conv2d(1, 10, (1,1)),
-            nn.Flatten(0,-1),
-            nn.ReLU(),
-            nn.Linear(1050, 256),
-            nn.ReLU(),
-            nn.Linear(256, 5)
-        )
+        self.net_actor = nn.Linear(67, action_dim)
+        #  self.net_actor = nn.Sequential(
+        #     nn.Conv2d(1, 10, (1,1)),
+        #     nn.Flatten(0,-1),
+        #     nn.ReLU(),
+        #     nn.Linear(1050, 256),
+        #     nn.ReLU(),
+        #     nn.Linear(256, 5)
+        # )
         # Critic
         # FIXME: Adjust the shape for different state size
-        self.net_critic = nn.Sequential(
-            nn.Conv2d(1, 3, (1,1)),
-            nn.Flatten(0,-1),
-            nn.ReLU(),
-            nn.Linear(315, 1)
-        )
+        self.net_critic = nn.Linear(67, 1)
+        # self.net_critic = nn.Sequential(
+        #     nn.Conv2d(1, 3, (1,1)),
+        #     nn.Flatten(0,-1),
+        #     nn.ReLU(),
+        #     nn.Linear(315, 1)
+        # )
 
         # load models
         if(load == True):
@@ -79,7 +85,7 @@ class Network(nn.Module):
         self.name = name
         self.timestamp = timestamp
 
-    def forward(self, state): 
+    def forward(self, state, lstm_par): 
         """
         Forward the state into neural networks
         Argument:
@@ -91,15 +97,32 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
-        for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 21)
-            if i == 0:            
-                logits = self.net_actor(s)
-                value  = self.net_critic(s)
-            else:
-                logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
-                value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
-        return logits, value
+        # for i in range(state.shape[0]):
+        #     s = state[i,:,:].reshape(1, 5, 21)
+        #     s = self.conv1(s)
+        #     s = self.conv2(s)
+        #     print(s.size())
+        #     s = s.view(-1, 32 * 5 * 21)
+        #     hx, cx = self.lstm(s, lstm_par)
+        #     s = hx
+        #     if i == 0:            
+        #         logits = self.net_actor(s)
+        #         value  = self.net_critic(s)
+        #     else:
+        #         logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
+        #         value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
+        s = self.conv1(state)
+        s = self.conv2(s)
+        # print(s.size())
+        s = s.view(-1, 32 * 5 * 21)
+        # print(s.size())
+        hx, cx = self.lstm(s, lstm_par)
+        s = hx
+
+        logits = self.net_actor(s)
+        value  = self.net_critic(s)
+
+        return torch.squeeze(logits), value, (hx, cx)
 
     def record(self, state, action, reward, value):
         """
@@ -121,7 +144,7 @@ class Network(nn.Module):
         self.actions = []
         self.rewards = []
 
-    def take_action(self, state):
+    def take_action(self, state, lstm_par):
         """
         Argument:
             state -- input state received from Unity environment 
@@ -129,7 +152,7 @@ class Network(nn.Module):
             action -- the action with MAXIMUM probability
         """
         state = torch.tensor(state, dtype=torch.float)
-        pi, v = self.forward(state)
+        pi, v, (hx, cx) = self.forward(state, lstm_par)
         
         probs = torch.softmax(pi.detach(), dim=0)
         log_probs = torch.log_softmax(pi.detach(), dim=0)
@@ -141,15 +164,15 @@ class Network(nn.Module):
         self.log_probs.append(log_probs)
         
         action = dist.sample().numpy()
-        return action , v
+        return action, v, (hx, cx)
 
-    def calc_R(self, done, normalize = False):
+    def calc_R(self, done, lstm_par, normalize = False):
         """
         Monte-Carlo method implementation
         """
         states = torch.tensor(self.states, dtype=torch.float)
         
-        _, v = self.forward(states)
+        _, v, (hx, cx) = self.forward(states, lstm_par)
 
         R = v[-1] * (1 - int(done))
 
@@ -165,7 +188,7 @@ class Network(nn.Module):
         
         return batch_return
 
-    def calc_loss(self, done):
+    def calc_loss(self, done, lstm_par):
         """
         Monte-Carlo method implementation
         """
@@ -174,7 +197,7 @@ class Network(nn.Module):
 
         returns = self.calc_R(done)
 
-        pi, values = self.forward(states)
+        pi, values = self.forward(states, lstm_par)
         values = values.squeeze()
         
         critic_loss = (returns - values) ** 2
@@ -400,6 +423,7 @@ class Worker(mp.Process):
         self.behavior = list(self.env.behavior_specs)[0]
 
         while self.g_ep.value < NUM_GAMES:
+            new_ep = True
             done = False
             self.env.reset()
             # if done:
@@ -411,8 +435,16 @@ class Worker(mp.Process):
             current_score = 0
             
             while not done:
+                if new_ep:
+                    # initialize lstm parameters with zeros
+                    (hx, cx) = (torch.zeros(1, self.state_dim), torch.zeros(1, self.state_dim)) # (batch_size, hidden_size)
+                    # or with random values
+                    # (hx, cx) = (torch.radn(1, self.state_dim), torch.radn(1, self.state_dim)) # (batch_size, hidden_size)
+                    new_ep = False
+
                 decision_steps, terminal_steps = self.env.get_steps(self.behavior)
                 step = None
+
                 if len(terminal_steps) != 0:
                     step = terminal_steps[terminal_steps.agent_id[0]]
                     state = np.array(step.obs) ## Unity return
@@ -430,7 +462,7 @@ class Worker(mp.Process):
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
-                    action, value = self.local_network.take_action(state)
+                    action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
@@ -448,7 +480,7 @@ class Worker(mp.Process):
                     state = state.reshape(1,7,21) 
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
-                    action, value = self.local_network.take_action(state)
+                    action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
 
                     actionTuple = ActionTuple()
 
@@ -485,6 +517,10 @@ class Worker(mp.Process):
                         self.optimizer.zero_grad()
                 else:
                     if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True: 
+                        # detach current lstm parameters
+                        cx = cx.detach()
+                        hx = hx.detach()
+                        
                         loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
                         self.optimizer.zero_grad()
                         loss.backward(retain_graph=True)
