@@ -1,0 +1,14 @@
+timestamp: 2022-12-23-18-09-00
+state dimension: 67
+action dimension: 5
+Maximum training episode for master agent: 100
+Maximum training episode for slave agent: 10
+Loss calculation method: TD
+GAMMA: 0.9
+LAMBDA: 0.95
+Learning rate: 1e-05
+============================================================
+actor network:
+Linear(in_features=67, out_features=5, bias=True)
+critic network:
+Linear(in_features=67, out_features=1, bias=True)
