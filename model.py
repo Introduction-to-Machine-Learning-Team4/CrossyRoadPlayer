@@ -8,17 +8,17 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 10000  # Maximum total training episode for master agent
-MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
-
-STATE_SHRINK = True # TODO: Test False
-GRADIENT_ACC = True
-MC = False # TODO: Test True
+MC = False # TODO: Test true
 TD = not MC
+STATE_SHRINK = True # TODO: Test False
+GRADIENT_ACC = True & MC
 GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
+
+NUM_GAMES = 1e2                   # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
+MAX_EP    = 10
 
 class Network(nn.Module):
     """
@@ -111,18 +111,25 @@ class Network(nn.Module):
         #     else:
         #         logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
         #         value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
-        s = self.conv1(state)
-        s = self.conv2(s)
-        # print(s.size())
-        s = s.view(-1, 32 * 5 * 21)
-        # print(s.size())
-        hx, cx = self.lstm(s, lstm_par)
-        s = hx
+        for i in range(state.shape[0]):
+            s = state[i,:,:].reshape(1, 5, 21)
+            s = self.conv1(s)
+            s = self.conv2(s)
+            # print(s.size())
+            s = s.view(-1, 32 * 5 * 21)
+            # print(s.size())
+            hx, cx = self.lstm(s, lstm_par)
+            s = hx
 
-        logits = self.net_actor(s)
-        value  = self.net_critic(s)
+            if i == 0:
+                logits = torch.squeeze(self.net_actor(s))
+                value  = self.net_critic(s)
+            else:
+                logits = torch.cat((logits.clone().detach(), torch.squeeze(self.net_actor(s))), -1)
+                value  = torch.vstack((value.clone().detach(), self.net_critic(s))) 
 
-        return torch.squeeze(logits), value, (hx, cx)
+        print(value)
+        return logits, value, (hx, cx)
 
     def record(self, state, action, reward, value):
         """
@@ -175,12 +182,13 @@ class Network(nn.Module):
         _, v, (hx, cx) = self.forward(states, lstm_par)
 
         R = v[-1] * (1 - int(done))
-
+    
         batch_return = []
         for reward in self.rewards[::-1]:
             R = reward + self.gamma * R
             batch_return.append(R)
         batch_return.reverse()
+        # print(batch_return)
         batch_return = torch.tensor(batch_return, dtype=torch.float)
 
         if(normalize == True):
@@ -197,7 +205,7 @@ class Network(nn.Module):
 
         returns = self.calc_R(done, lstm_par)
 
-        pi, values = self.forward(states, lstm_par)
+        pi, values, (hx, cx) = self.forward(states, lstm_par)
         values = values.squeeze()
         
         critic_loss = (returns - values) ** 2
@@ -245,15 +253,15 @@ class Network(nn.Module):
         torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
         torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
-            fh.write("Model's state_dict:\n")
-            for param_tensor in self.net_actor.state_dict():
-                fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
+        # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.net_actor.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
-            fh.write("Model's state_dict:\n")
-            for param_tensor in self.net_critic.state_dict():
-                fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
+        # with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
+        #     fh.write("Model's state_dict:\n")
+        #     for param_tensor in self.net_critic.state_dict():
+        #         fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
         # with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
         #     fh.write("Model's state_dict:\n")
@@ -274,8 +282,9 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
                 fh.write(f'Loss calculation method: MC\n')
-            else:
+            if TD:
                 fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'Gradirnt accumulatoin: {GRADIENT_ACC}\n')
             fh.write(f'GAMMA: {GAMMA}\n')
             fh.write(f'LAMBDA: {LAMBDA}\n')
             fh.write(f'Learning rate: {LR}\n')
@@ -462,7 +471,8 @@ class Worker(mp.Process):
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
-                    action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
+                    if TD:
+                        action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
@@ -503,11 +513,12 @@ class Worker(mp.Process):
                     # Do the gradient descent but not update global network directly
                     if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
                         # print(f'For debug usage: self.l_ep={self.l_ep}')
-                        loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
-                        loss.requires_grad = True
+                        loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
+                        if TD:
+                            loss.requires_grad = True
                         # self.loss_queue.put(loss.detach().numpy()) #record loss
-                        self.local_network.reset()
                         loss.backward()
+                        self.local_network.reset()
 
                     # update global network (gradient accumulation!)
                     if (self.l_ep % MAX_EP == 0):
@@ -521,9 +532,11 @@ class Worker(mp.Process):
                         cx = cx.detach()
                         hx = hx.detach()
                         
-                        loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
+                        loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
+                        if TD:
+                            loss.requires_grad = True
                         self.optimizer.zero_grad()
-                        loss.backward(retain_graph=True)
+                        loss.backward()
                         self.push()   
                         self.optimizer.step()
                         self.pull()
@@ -545,6 +558,7 @@ class Worker(mp.Process):
         self.score_queue.put(None)
         self.loss_queue.put(None)
         self.save()
+        self.env.close()
 
     def save(self):
         """
