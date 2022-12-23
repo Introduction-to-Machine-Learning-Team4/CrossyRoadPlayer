@@ -8,6 +8,8 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 MC = False # TODO: Test true
 TD = not MC
 STATE_SHRINK = True # TODO: Test False
@@ -16,7 +18,7 @@ GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
 
-NUM_GAMES = 1e2                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 10
 
@@ -244,8 +246,8 @@ class Network(nn.Module):
         if not os.path.isdir(f'.\model\{self.timestamp}'):
             os.mkdir(f'.\model\{self.timestamp}')
         
-        torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
-        torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
+        # torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
+        # torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
         
         # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
         #     fh.write("Model's state_dict:\n")
@@ -270,7 +272,7 @@ class Network(nn.Module):
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
             fh.write(f'timestamp: {self.timestamp}\n')
-            fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
+            fh.write(f'state dimension: {self.state_dim}\n')   # Input dimension
             fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
@@ -283,9 +285,21 @@ class Network(nn.Module):
             fh.write(f'LAMBDA: {LAMBDA}\n')
             fh.write(f'Learning rate: {LR}\n')
             fh.write(f'============================================================\n')
+            fh.write(f'1st onvolution network:\n{self.conv1}\n')
+            fh.write(f'1st onvolution network state dict:\n{self.conv1.state_dict()}\n')
+            fh.write(f'\n-----\n')
+            fh.write(f'2st onvolution network:\n{self.conv2}\n')
+            fh.write(f'2st onvolution network state dict:\n{self.conv2.state_dict()}\n')
+            fh.write(f'\n-----\n')
+            fh.write(f'lstm network:\n{self.lstm}\n')
+            fh.write(f'lstm network state dict:\n{self.lstm.state_dict()}\n')
+            fh.write(f'\n-----\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
+            fh.write(f'actor network state dict:\n{self.net_actor.state_dict()}\n')
+            fh.write(f'\n-----\n')
             fh.write(f'critic network:\n{self.net_critic}\n')
+            fh.write(f'critic network state dict:\n{self.net_critic.state_dict()}\n')
 
 class Agent(mp.Process):
     """
@@ -326,7 +340,7 @@ class Agent(mp.Process):
         # record episode reward to plot
         res   = []
         score = []
-        # loss  = []
+        loss  = []
           
         while True:
             r = self.res_queue.get()
@@ -342,14 +356,12 @@ class Agent(mp.Process):
             else:
                 break
         print('checkpoint6')
-        # while True:
-        #     los = self.loss_queue.get()
-        #     if los is not None:
-        #         loss.append(los)
-        #     else:
-        #         break
-
-        [w.join() for w in self.workers]
+        while True:
+            los = self.loss_queue.get()
+            if los is not None:
+                loss.append(los)
+            else:
+                break
         
         # plot
         import matplotlib.pyplot as plt
@@ -358,21 +370,28 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
         plt.close()
+        
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
         plt.close()
-        '''
-        # plt.plot(loss)
-        # plt.ylabel('entropy loss')
-        # plt.xlabel('Step')
-        # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
-        # plt.close()
-        '''
 
+        plt.plot(loss)
+        plt.ylabel('entropy loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        plt.close()
+
+        self.save()
+
+        [w.join() for w in self.workers]
+        
+        
     def save(self):
-        self.global_network.save()
+        # self.global_network.save()
+        torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
+        torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_model_state_dict.pt')
 
 class Worker(mp.Process):
     """
@@ -524,7 +543,7 @@ class Worker(mp.Process):
                         loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
                         if TD:
                             loss.requires_grad = True
-                        # self.loss_queue.put(loss.detach().numpy()) #record loss
+                        self.loss_queue.put(loss.detach().numpy()) #record loss
                         loss.backward()
                         self.local_network.reset()
 

@@ -4,7 +4,6 @@ def train():
     try:
         agent = Agent(67, 5)
         agent.start()
-        agent.save()
         print('checkpoint1')
         agent.join()
         print('checkpoint2')
