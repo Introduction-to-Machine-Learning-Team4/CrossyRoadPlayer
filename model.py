@@ -8,17 +8,17 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 1e5      # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 100      # Maximum step for slave agent to accumulate gradient
-MAX_EP    = 10
-
-STATE_SHRINK = True
-GRADIENT_ACC = True
 MC = False
 TD = not MC
+STATE_SHRINK = True
+GRADIENT_ACC = True & MC
 GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
+
+NUM_GAMES = 1e4                   # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
+MAX_EP    = 10
 
 class Network(nn.Module):
     """
@@ -69,12 +69,10 @@ class Network(nn.Module):
         self.states  = np.array([])
         self.actions = []
         self.rewards = []
-        
+
         self.values     = []
         self.entropies  = []
         self.log_probs  = []
-
-        # self.scores  = []
 
         self.name = name
         self.timestamp = timestamp
@@ -97,8 +95,8 @@ class Network(nn.Module):
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
             else:
-                logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
-                value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
+                logits = torch.cat((logits.clone().detach(), self.net_actor(s)), -1)
+                value  = torch.cat((value.clone().detach(), self.net_critic(s)), -1) 
         return logits, value
 
     def record(self, state, action, reward, value):
@@ -251,8 +249,9 @@ class Network(nn.Module):
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
                 fh.write(f'Loss calculation method: MC\n')
-            else:
+            if TD:
                 fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'Gradirnt accumulatoin: {GRADIENT_ACC}\n')
             fh.write(f'GAMMA: {GAMMA}\n')
             fh.write(f'LAMBDA: {LAMBDA}\n')
             fh.write(f'Learning rate: {LR}\n')
@@ -277,7 +276,7 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
-            mp.Value('i', 0), mp.Queue(), mp.Queue(), mp.Queue()
+            mp.Value('i', 0), mp.Queue(300000), mp.Queue(300000), mp.Queue(300000)
 
     def close(self):
         """
@@ -296,17 +295,20 @@ class Agent(mp.Process):
                                     for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
-        # record episode reward, score to plot
+        
+        # record episode reward, score, loss to plot
         res   = []
         score = []
-        # loss  = []
+        loss  = []
+        
         while True:
             r = self.res_queue.get()
             if r is not None:
                 res.append(r)
             else:
-                break
+                break   
         print('checkpoint5')
+        
         while True:
             sc = self.score_queue.get()
             if sc is not None:
@@ -314,36 +316,44 @@ class Agent(mp.Process):
             else:
                 break
         print('checkpoint6')
-        '''
-        # while True:
-        #     los = self.loss_queue.get()
-        #     if los is not None:
-        #         loss.append(los)
-        #     else:
-        #         break
-        # plot
-        '''
+
+        while True:
+            los = self.loss_queue.get()
+            if los is not None:
+                loss.append(los)
+            else:
+                break
+        print('checkpoint7')
+
         import matplotlib.pyplot as plt
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
         plt.close()
+
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
         plt.close()
-        '''
-        # plt.plot(loss)
-        # plt.ylabel('entropy loss')
-        # plt.xlabel('Step')
-        # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
-        # plt.close()
-        '''
-        [w.join() for w in self.workers]
-        self.save()
+        
+        plt.plot(loss)
+        plt.ylabel('entropy loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        plt.close()
 
+        self.res_queue.close()
+        self.score_queue.close()
+        self.loss_queue.close()
+
+        # print(f'For debug usage: 0') 
+        self.save()  
+        # print(f'For debug usage: 1')  
+        [w.join() for w in self.workers]
+        # print(f'For debug usage: 2')
+    
     def save(self):
         self.global_network.save()
 
@@ -401,8 +411,7 @@ class Worker(mp.Process):
         while self.g_ep.value < NUM_GAMES:
             done = False
             self.env.reset()
-            # if done:
-            #     self.local_network.reset()
+            self.local_network.reset()
             self.l_step = 0
             
             score = 0
@@ -429,7 +438,8 @@ class Worker(mp.Process):
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
-                    action, value = self.local_network.take_action(state)
+                    if TD: # FIXME: have no idea why MC cannot execute with this line
+                        action, value = self.local_network.take_action(state)
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
@@ -469,12 +479,12 @@ class Worker(mp.Process):
                 if GRADIENT_ACC :
                     # Do the gradient descent but not update global network directly
                     if (self.l_step % MAX_STEP == 0 and self.l_step != 0) or done == True:
-                        # print(f'For debug usage: self.l_ep={self.l_ep}')
-                        loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
-                        loss.requires_grad = True
-                        # self.loss_queue.put(loss.detach().numpy()) #record loss
-                        self.local_network.reset()
+                        loss = self.local_network.calc_loss(done)
+                        if TD: # FIXME: have no idea why MC cannot execute with this line
+                            loss.requires_grad = True
+                        self.loss_queue.put(loss.detach().numpy()) #record loss
                         loss.backward()
+                        self.local_network.reset()
 
                     # update global network (gradient accumulation!)
                     if (self.l_ep % MAX_EP == 0):
@@ -483,10 +493,13 @@ class Worker(mp.Process):
                         self.pull()
                         self.optimizer.zero_grad()
                 else:
-                    if (self.l_ep % MAX_EP == 0 and self.l_ep != 0) or done == True: 
+                    if (self.l_ep % MAX_STEP == 0 and self.l_ep != 0) or done == True: 
                         loss = self.local_network.calc_loss(done) if MC else self.local_network.calc_loss_v2(done)
                         self.optimizer.zero_grad()
-                        loss.backward(retain_graph=True)
+                        if TD: # FIXME: have no idea why MC cannot execute with this line
+                            loss.requires_grad = True
+                        self.loss_queue.put(loss.detach().numpy()) #record loss
+                        loss.backward()
                         self.push()   
                         self.optimizer.step()
                         self.pull()
@@ -508,6 +521,7 @@ class Worker(mp.Process):
         self.score_queue.put(None)
         self.loss_queue.put(None)
         self.save()
+        self.env.close()
 
     def save(self):
         """
