@@ -195,7 +195,7 @@ class Network(nn.Module):
         states = torch.tensor(self.states, dtype=torch.float)
         actions = torch.tensor(self.actions, dtype=torch.float)
 
-        returns = self.calc_R(done)
+        returns = self.calc_R(done, lstm_par)
 
         pi, values = self.forward(states, lstm_par)
         values = values.squeeze()
