@@ -8,13 +8,13 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-NUM_GAMES = 100  # Maximum total training episode for master agent
+NUM_GAMES = 10000  # Maximum total training episode for master agent
 MAX_EP    = 10      # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100     # Maximum step for slave agent to accumulate gradient
 
-STATE_SHRINK = True
+STATE_SHRINK = True # TODO: Test False
 GRADIENT_ACC = True
-MC = False
+MC = False # TODO: Test True
 TD = not MC
 GAMMA  = 0.90
 LAMBDA = 0.95
