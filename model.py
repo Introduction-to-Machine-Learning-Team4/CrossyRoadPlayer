@@ -10,6 +10,7 @@ import datetime
 import os
 import random
 import math
+import time
 os.environ["KMP_DUPLICATE_LIB_OK"]="True"
 # Seed
 seed = 1234
@@ -21,8 +22,8 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 3000  # Maximum training episode for master agent
-MAX_EP = 100     # Maximum training episode for slave agent
+NUM_GAMES = 10000  # Maximum training episode for master agent
+MAX_EP = 10000     # Maximum training episode for slave agent
 
 class Network(nn.Module):
     """
@@ -223,7 +224,7 @@ class Network(nn.Module):
         probs = torch.softmax(pi, dim=1)
         probs=probs.detach().numpy()
         probs=np.reshape(probs,(-1,))
-        loss = -sum([p*math.log(p) for p in probs])
+        loss = -sum([p*math.log(p+1e-5) for p in probs])
         return loss
     def save(self):
         """
@@ -250,19 +251,19 @@ class Network(nn.Module):
         #     for param_tensor in self.lstm.state_dict():
         #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
         
-        with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
-            fh.write("Index \t\t action \t reward:\n")
-            for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
-                fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+        # with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
+        #     fh.write("Index \t\t action \t reward:\n")
+        #     for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
+        #         fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
 
         # Ouput parameters
-        with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
-            fh.write(f'timestamp: {self.timestamp}\n')
-            fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
-            fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
-            fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
-            fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
-            fh.write(f'============================================================\n')
+        # with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
+        #     fh.write(f'timestamp: {self.timestamp}\n')
+        #     fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
+        #     fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
+        #     fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
+        #     fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
+        #     fh.write(f'============================================================\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             # fh.write(f'actor network:\n{self.net_actor}\n')
             # fh.write(f'critic network:\n{self.net_critic}\n')
@@ -282,10 +283,10 @@ class Agent(mp.Process):
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=1e-4, betas=(0.92, 0.999)) # global optimizer
-        self.global_ep, self.res_queue = mp.Value('i', 0), mp.Queue()
+        self.global_ep, self.res_queue = mp.Value('i', 0), mp.Manager().Queue()
         # TODO: add loss queue 
-        self.score_queue=mp.Queue()
-        self.loss_queue=mp.Queue()
+        self.score_queue=mp.Manager().Queue()
+        self.loss_queue=mp.Manager().Queue()
 
     def close(self):
         """
@@ -309,11 +310,13 @@ class Agent(mp.Process):
         res = []
         score=[]
         loss=[]
+        still_running=True
         while True:
             r = self.res_queue.get()
             if r is not None:
                 res.append(r)
             else:
+                print("ter1")
                 break
         
         while True:
@@ -321,17 +324,19 @@ class Agent(mp.Process):
             if sc is not None:
                 score.append(sc)
             else:
+                print("ter2")
                 break
         while True:
             los = self.loss_queue.get()
             if los is not None:
                 loss.append(los)
             else:
+                print("ter3")
                 break
-
+        print(len(res),len(score),len(loss))
         [w.join() for w in self.workers]
         # [w.save() for w in self.workers]
-
+        print("test2")
         # plot
         import matplotlib.pyplot as plt
         plt.plot(res)
@@ -410,7 +415,11 @@ class Worker(mp.Process):
             best_score=0
             current_score=0
             loss_value=0
+            die=0
+            act=0
+            col=0
             while not done:
+                beat_high=0
                 if new_ep:
                     # initialize lstm parameters with zeros
                     (hx, cx) = (torch.zeros(1, self.state_dim), torch.zeros(1, self.state_dim)) # (batch_size, hidden_size)
@@ -424,6 +433,7 @@ class Worker(mp.Process):
                     step = terminal_steps[terminal_steps.agent_id[0]]
                     state = step.obs ## Unity return
                     done = True
+                    die=1
                 else:
                     step = decision_steps[decision_steps.agent_id[0]] 
                     state = np.array(step.obs) + np.random.rand(*np.array(np.array(step.obs)).shape) if (self.g_ep.value < 100) else np.array(step.obs) ## Unity return
@@ -438,10 +448,19 @@ class Worker(mp.Process):
                     #     action = np.asarray([[action]])
                     if action==1:
                         current_score+=1
+                        act=1
                     elif action==2:
                         current_score-=1
+                        act=-1
+                    elif action==3:
+                        act=3
+                        col-=1
+                    elif action==4:
+                        act=4
+                        col+=1
                     if current_score>best_score:
                         best_score=current_score
+                        beat_high=1
                     action = np.asarray([[action]])
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     
@@ -453,6 +472,14 @@ class Worker(mp.Process):
                 # elif(reward >= 0.1): # moving forward 15 sec
                 #     reward = reward + 0.1
                 # ----------------------------------------
+                if die==1:
+                    reward=-10
+                elif beat_high==1:
+                    reward=10
+                elif act==1:
+                    reward=1-((100-current_score)/100)**0.5
+                else:
+                    reward=0
                 score += reward
                 self.local_network.record(state, action, reward)
                 
@@ -485,15 +512,15 @@ class Worker(mp.Process):
 
             with self.g_ep.get_lock():
                 self.g_ep.value += 1
-            self.loss_queue.put(loss_value)
-            self.res_queue.put(score)
-            self.score_queue.put(best_score)
-            print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
-        
+            self.loss_queue.put(round(loss_value,3))
+            self.res_queue.put(round(score,3))
+            self.score_queue.put(round(best_score,3))
+            print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}, score {best_score}, loss {loss_value}')
         self.res_queue.put(None)
         self.score_queue.put(None)
         self.loss_queue.put(None)
         self.save()
+        self.env.close()
 
     def save(self):
         """
