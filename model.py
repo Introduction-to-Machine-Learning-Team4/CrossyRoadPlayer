@@ -8,6 +8,8 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 MC = False # TODO: Test true
 TD = not MC
 STATE_SHRINK = False # TODO: Test False
@@ -16,7 +18,7 @@ GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
 
-NUM_GAMES = 1e2                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 10
 
@@ -40,7 +42,7 @@ class Network(nn.Module):
         self.state_dim = state_dim
         self.action_dim = action_dim
 
-        self.conv1 = nn.Conv2d(1, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
+        self.conv1 = nn.Conv2d(4, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
         self.conv2 = nn.Conv2d(32, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
         self.lstm = nn.LSTMCell(32 * 5 * 21, 67) if STATE_SHRINK else nn.LSTMCell(32 * 7 * 21, 67) # (input_size, hidden_size)
    
@@ -97,20 +99,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_actor.layer[0].weight)
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
-        # for i in range(state.shape[0]):
-        #     s = state[i,:,:].reshape(1, 5, 21)
-        #     s = self.conv1(s)
-        #     s = self.conv2(s)
-        #     print(s.size())
-        #     s = s.view(-1, 32 * 5 * 21)
-        #     hx, cx = self.lstm(s, lstm_par)
-        #     s = hx
-        #     if i == 0:            
-        #         logits = self.net_actor(s)
-        #         value  = self.net_critic(s)
-        #     else:
-        #         logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
-        #         value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
+        """
         for i in range(state.shape[0]):
             s = state[i,:,:].reshape(1, 5, 21) if STATE_SHRINK else state[i,:,:].reshape(1, 7, 21)
             s = self.conv1(s)
@@ -120,16 +109,20 @@ class Network(nn.Module):
             # print(s.size())
             hx, cx = self.lstm(s, lstm_par)
             s = hx
+        """
 
-            if i == 0:
-                logits = torch.squeeze(self.net_actor(s))
-                value  = self.net_critic(s)
-            else:
-                logits = torch.cat((logits.clone().detach(), torch.squeeze(self.net_actor(s))), -1)
-                value  = torch.vstack((value.clone().detach(), self.net_critic(s))) 
+        s = self.conv1(state)
+        s = self.conv2(s)
+        # print(s.size())
+        s = s.view(-1, 32 * 5 * 21) if STATE_SHRINK else s.view(-1, 32 * 7 * 21)
+        # print(s.size())
+        hx, cx = self.lstm(s, lstm_par)
+        s = hx
 
-        # print(value)
-        return logits, value, (hx, cx)
+        logits = self.net_actor(s)
+        value  = self.net_critic(s)
+
+        return torch.squeeze(logits), value, (hx, cx)
 
     def record(self, state, action, reward, value):
         """
@@ -250,8 +243,8 @@ class Network(nn.Module):
         if not os.path.isdir(f'.\model\{self.timestamp}'):
             os.mkdir(f'.\model\{self.timestamp}')
         
-        torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
-        torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
+        # torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
+        # torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
         
         # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
         #     fh.write("Model's state_dict:\n")
@@ -276,7 +269,7 @@ class Network(nn.Module):
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
             fh.write(f'timestamp: {self.timestamp}\n')
-            fh.write(f'state dimension: {self.state_dim}\n') # Input dimension
+            fh.write(f'state dimension: {self.state_dim}\n')   # Input dimension
             fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
@@ -289,9 +282,21 @@ class Network(nn.Module):
             fh.write(f'LAMBDA: {LAMBDA}\n')
             fh.write(f'Learning rate: {LR}\n')
             fh.write(f'============================================================\n')
+            fh.write(f'1st onvolution network:\n{self.conv1}\n')
+            fh.write(f'1st onvolution network state dict:\n{self.conv1.state_dict()}\n')
+            fh.write(f'\n-----\n')
+            fh.write(f'2st onvolution network:\n{self.conv2}\n')
+            fh.write(f'2st onvolution network state dict:\n{self.conv2.state_dict()}\n')
+            fh.write(f'\n-----\n')
+            fh.write(f'lstm network:\n{self.lstm}\n')
+            fh.write(f'lstm network state dict:\n{self.lstm.state_dict()}\n')
+            fh.write(f'\n-----\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
             fh.write(f'actor network:\n{self.net_actor}\n')
+            fh.write(f'actor network state dict:\n{self.net_actor.state_dict()}\n')
+            fh.write(f'\n-----\n')
             fh.write(f'critic network:\n{self.net_critic}\n')
+            fh.write(f'critic network state dict:\n{self.net_critic.state_dict()}\n')
 
 class Agent(mp.Process):
     """
@@ -332,7 +337,7 @@ class Agent(mp.Process):
         # record episode reward to plot
         res   = []
         score = []
-        # loss  = []
+        loss  = []
           
         while True:
             r = self.res_queue.get()
@@ -348,14 +353,12 @@ class Agent(mp.Process):
             else:
                 break
         print('checkpoint6')
-        # while True:
-        #     los = self.loss_queue.get()
-        #     if los is not None:
-        #         loss.append(los)
-        #     else:
-        #         break
-
-        [w.join() for w in self.workers]
+        while True:
+            los = self.loss_queue.get()
+            if los is not None:
+                loss.append(los)
+            else:
+                break
         
         # plot
         import matplotlib.pyplot as plt
@@ -364,21 +367,28 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\ep_reward.png')
         plt.close()
+        
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
         plt.close()
-        '''
-        # plt.plot(loss)
-        # plt.ylabel('entropy loss')
-        # plt.xlabel('Step')
-        # plt.savefig(f'.\model\{self.time_stamp}\loss.png')
-        # plt.close()
-        '''
 
+        plt.plot(loss)
+        plt.ylabel('entropy loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        plt.close()
+
+        self.save()
+
+        [w.join() for w in self.workers]
+        
+        
     def save(self):
-        self.global_network.save()
+        # self.global_network.save()
+        torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
+        torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_model_state_dict.pt')
 
 class Worker(mp.Process):
     """
@@ -467,7 +477,11 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21)
+                    state = np.hstack(((np.where(state == -1, 1, 0)), 
+                                       (np.where(state ==  0, 1, 0)), 
+                                       (np.where(state ==  1, 1, 0)),
+                                       (np.where(state ==  2, 1, 0))))
+                    state = state.reshape(4,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     done = True
@@ -476,7 +490,7 @@ class Worker(mp.Process):
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
-                    state = np.array(step.obs) + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
+                    state = np.array(step.obs) # + np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
                     # FIXME: Adjust the shape for different state size
                     state = np.vstack((
                         state[126:147],
@@ -487,7 +501,17 @@ class Worker(mp.Process):
                         state[21:42],
                         state[0:21],
                     ))
-                    state = state.reshape(1,7,21) 
+                    # print(state)
+                    # print(np.where(state == -1))
+                    # print(f'{np.where(state == -1).shape}\n')
+                    # print(f'{np.where(state ==  0).shape}\n')
+                    # print(f'{np.where(state ==  1).shape}\n')
+                    # print(f'{np.where(state ==  2).shape}\n')
+                    state = np.hstack(((np.where(state == -1, 1, 0)), 
+                                       (np.where(state ==  0, 1, 0)), 
+                                       (np.where(state ==  1, 1, 0)),
+                                       (np.where(state ==  2, 1, 0))))
+                    state = state.reshape(4,7,21)
                     if STATE_SHRINK:
                         state = state[:,2:7,:]
                     action, value, (hx, cx) = self.local_network.take_action(state, (hx, cx))
@@ -516,7 +540,7 @@ class Worker(mp.Process):
                         loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
                         if TD:
                             loss.requires_grad = True
-                        # self.loss_queue.put(loss.detach().numpy()) #record loss
+                        self.loss_queue.put(loss.detach().numpy()) #record loss
                         loss.backward()
                         self.local_network.reset()
 
