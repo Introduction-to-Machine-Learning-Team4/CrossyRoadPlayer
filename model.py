@@ -10,7 +10,7 @@ import os
 
 MC = False # TODO: Test true
 TD = not MC
-STATE_SHRINK = True # TODO: Test False
+STATE_SHRINK = False # TODO: Test False
 GRADIENT_ACC = True & MC
 GAMMA  = 0.90
 LAMBDA = 0.95
@@ -42,7 +42,7 @@ class Network(nn.Module):
 
         self.conv1 = nn.Conv2d(1, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
         self.conv2 = nn.Conv2d(32, 32, 3, padding=1) # (in_channels, out_channels, kernel_size)
-        self.lstm = nn.LSTMCell(32 * 5 * 21, 67) # (input_size, hidden_size)
+        self.lstm = nn.LSTMCell(32 * 5 * 21, 67) if STATE_SHRINK else nn.LSTMCell(32 * 7 * 21, 67) # (input_size, hidden_size)
    
         # Actor
         # FIXME: Adjust the shape for different state size
@@ -112,11 +112,11 @@ class Network(nn.Module):
         #         logits = torch.cat((logits.clone().detach(), self.net_actor(s)), 1)
         #         value  = torch.cat((value.clone().detach(), self.net_critic(s)), 1) 
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 21)
+            s = state[i,:,:].reshape(1, 5, 21) if STATE_SHRINK else state[i,:,:].reshape(1, 7, 21)
             s = self.conv1(s)
             s = self.conv2(s)
             # print(s.size())
-            s = s.view(-1, 32 * 5 * 21)
+            s = s.view(-1, 32 * 5 * 21) if STATE_SHRINK else s.view(-1, 32 * 7 * 21)
             # print(s.size())
             hx, cx = self.lstm(s, lstm_par)
             s = hx
@@ -128,7 +128,7 @@ class Network(nn.Module):
                 logits = torch.cat((logits.clone().detach(), torch.squeeze(self.net_actor(s))), -1)
                 value  = torch.vstack((value.clone().detach(), self.net_critic(s))) 
 
-        print(value)
+        # print(value)
         return logits, value, (hx, cx)
 
     def record(self, state, action, reward, value):
