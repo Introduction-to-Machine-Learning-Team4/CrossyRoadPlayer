@@ -22,7 +22,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 10000  # Maximum training episode for master agent
+NUM_GAMES = 30000  # Maximum training episode for master agent
 MAX_EP = 10000     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -473,11 +473,11 @@ class Worker(mp.Process):
                 #     reward = reward + 0.1
                 # ----------------------------------------
                 if die==1:
-                    reward=-10
+                    reward=-3
                 elif beat_high==1:
                     reward=10
                 elif act==1:
-                    reward=1-((100-current_score)/100)**0.5
+                    reward=1-((300-current_score)/100)**0.5
                 else:
                     reward=0
                 score += reward
