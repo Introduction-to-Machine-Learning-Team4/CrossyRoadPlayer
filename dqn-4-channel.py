@@ -13,11 +13,11 @@ import datetime
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DOUBLE = True
-FOLDER = 'ddqn' if DOUBLE else 'dqn'
+FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.7
-EPSILON_PAIR = (0.4, 0.01)
+EPSILON_PAIR = (0.2, 0.01)
 N_EPOCHS = 10000
-BATCH_SIZE = 16
+BATCH_SIZE = 128
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
 TAR_NET_UPDATE_PERIOD = 5
@@ -257,6 +257,10 @@ def main():
         
         with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\score.txt', 'w') as fh:
             for i, s in enumerate(best_score_list):
+                fh.write(f"{i}: {s}\n")
+
+        with open(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\loss.txt', 'w') as fh:
+            for i, s in enumerate(loss_rec):
                 fh.write(f"{i}: {s}\n")
         
         with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\\info.txt', 'w') as fh:
