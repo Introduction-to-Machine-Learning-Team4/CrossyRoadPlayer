@@ -14,8 +14,8 @@ import datetime
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
-GAMMA = 0.7
-EPSILON_PAIR = (0.7, 0.01)
+GAMMA = 0.9
+EPSILON_PAIR = (0.2, 0.01)
 N_EPOCHS = 10000
 BATCH_SIZE = 32
 N_UPDATES = 3
