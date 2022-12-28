@@ -8,15 +8,15 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-MC = False
+MC = True
 TD = not MC
 STATE_SHRINK = True
 GRADIENT_ACC = True & MC
 GAMMA  = 0.90
 LAMBDA = 0.95
-LR = 1e-5
+LR = 1e-3
 
-NUM_GAMES = 1e4                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e6                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 10
 
@@ -90,7 +90,7 @@ class Network(nn.Module):
         # nn.init.xavier_normal_(self.net_critic.layer[0].weight)
         # FIXME: Adjust the shape for different state size
         for i in range(state.shape[0]):
-            s = state[i,:,:].reshape(1, 5, 21)
+            s = state[i,:,:].reshape(1, 5, 21) if STATE_SHRINK else state[i,:,:].reshape(1, 7, 21)
             if i == 0:            
                 logits = self.net_actor(s)
                 value  = self.net_critic(s)
@@ -141,7 +141,7 @@ class Network(nn.Module):
         action = dist.sample().numpy()
         return action , v
 
-    def calc_R(self, done, normalize = False):
+    def calc_R(self, done, normalize = True):
         """
         Monte-Carlo method implementation
         """
@@ -276,7 +276,7 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
-            mp.Value('i', 0), mp.Queue(300000), mp.Queue(300000), mp.Queue(300000)
+            mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
 
     def close(self):
         """
@@ -307,7 +307,6 @@ class Agent(mp.Process):
                 res.append(r)
             else:
                 break   
-        print('checkpoint5')
         
         while True:
             sc = self.score_queue.get()
@@ -315,7 +314,6 @@ class Agent(mp.Process):
                 score.append(sc)
             else:
                 break
-        print('checkpoint6')
 
         while True:
             los = self.loss_queue.get()
@@ -323,8 +321,8 @@ class Agent(mp.Process):
                 loss.append(los)
             else:
                 break
-        print('checkpoint7')
-
+        [w.join() for w in self.workers]
+        
         import matplotlib.pyplot as plt
         plt.plot(res)
         plt.ylabel('Moving average ep reward')
@@ -344,16 +342,8 @@ class Agent(mp.Process):
         plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         plt.close()
 
-        self.res_queue.close()
-        self.score_queue.close()
-        self.loss_queue.close()
+        self.save() 
 
-        # print(f'For debug usage: 0') 
-        self.save()  
-        # print(f'For debug usage: 1')  
-        [w.join() for w in self.workers]
-        # print(f'For debug usage: 2')
-    
     def save(self):
         self.global_network.save()
 
@@ -399,9 +389,9 @@ class Worker(mp.Process):
         Initilize Unity environment and start training
         """
         if int(self.name) == 0:
-            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
+            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
         else:
-            self.env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
+            self.env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
         self.pull()
@@ -515,7 +505,7 @@ class Worker(mp.Process):
             self.res_queue.put(score)
             self.score_queue.put(best_score)
 
-            print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}')
+            print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}, score {best_score}')
 
         self.res_queue.put(None)
         self.score_queue.put(None)
