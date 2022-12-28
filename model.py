@@ -22,7 +22,7 @@ random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-NUM_GAMES = 30000  # Maximum training episode for master agent
+NUM_GAMES = 20000  # Maximum training episode for master agent
 MAX_EP = 10000     # Maximum training episode for slave agent
 
 class Network(nn.Module):
@@ -46,8 +46,8 @@ class Network(nn.Module):
         self.action_dim = action_dim
         self.conv_in=7
         self.conv_dim=16
-        self.fac = 144
-        self.fc1s, self.fc2s = 64, self.state_dim
+        self.fac = 480
+        self.fc1s, self.fc2s = 256, self.state_dim
         # initialize LSTM
         self.lstm = nn.LSTMCell(state_dim, state_dim, bias=False) # (input_size, hidden_size)
         # self.lstm.bias_ih.data.fill_(0)
@@ -56,8 +56,8 @@ class Network(nn.Module):
         # c0 = torch.randn(self.hidden_layer_num, self.batch_size, self.hidden_feature_dim)
 
         # Actor
-        self.action_head = nn.Linear(self.fc2s, action_dim)
-        self.critic_head  = nn.Linear(self.fc2s, 1)
+        self.action_head =nn.Linear(self.fc2s,self.action_dim)
+        self.critic_head  = nn.Linear(self.fc2s,1)
         self.net = nn.Sequential(
             # nn.Linear(state_dim, 60),
             # nn.ReLU(),
@@ -123,9 +123,9 @@ class Network(nn.Module):
         # hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
         
         # state = hx
-        value = self.net(state.reshape((1,1,7,7)))
+        value = self.net(state.reshape((1,1,7,21)))
         value=self.critic_head(value)
-        logits = self.net(state.reshape((1,1,7,7)))
+        logits = self.net(state.reshape((1,1,7,21)))
         (hx, cx) = lstm_par
         x = state.view(-1, self.state_dim)
         hx, cx = self.lstm(x, (hx, cx)) # update lstm parameters
@@ -287,6 +287,7 @@ class Agent(mp.Process):
         # TODO: add loss queue 
         self.score_queue=mp.Manager().Queue()
         self.loss_queue=mp.Manager().Queue()
+        self.mean_loss_queue=mp.Manager().Queue()
 
     def close(self):
         """
@@ -301,7 +302,7 @@ class Agent(mp.Process):
         """
         self.workers = [Worker(self.global_network, self.opt, 
                             self.state_dim, self.action_dim, 0.9, 
-                            self.global_ep, i, self.global_network.timestamp, self.res_queue,self.score_queue,self.loss_queue) 
+                            self.global_ep, i, self.global_network.timestamp, self.res_queue,self.score_queue,self.loss_queue,self.mean_loss_queue) 
                                 for i in range(mp.cpu_count() - 0)]
         # parallel training
         [w.start() for w in self.workers]
@@ -310,6 +311,7 @@ class Agent(mp.Process):
         res = []
         score=[]
         loss=[]
+        mean_loss=[]
         still_running=True
         while True:
             r = self.res_queue.get()
@@ -333,7 +335,14 @@ class Agent(mp.Process):
             else:
                 print("ter3")
                 break
-        print(len(res),len(score),len(loss))
+        while True:
+            m = self.mean_loss_queue.get()
+            if m is not None:
+                mean_loss.append(m)
+            else:
+                print("ter4")
+                break
+        # print(len(res),len(score),len(loss),len())
         [w.join() for w in self.workers]
         # [w.save() for w in self.workers]
         print("test2")
@@ -347,12 +356,19 @@ class Agent(mp.Process):
         plt.plot(score)
         plt.ylabel('game score')
         plt.xlabel('Step')
+        plt.title(f'average score of last 5000 = {np.mean(score[NUM_GAMES-5000:])}')
         plt.savefig(f'.\model\{self.time_stamp}\gamescore.png')
         plt.clf()
         plt.plot(loss)
         plt.ylabel('entropy loss')
         plt.xlabel('Step')
-        plt.savefig(f'.\model\{self.time_stamp}\loss.png')
+        plt.savefig(f'.\model\{self.time_stamp}\entropy_loss.png')
+        plt.clf()
+        plt.plot(mean_loss)
+        plt.ylabel('mean loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\model\{self.time_stamp}\mean_loss.png')
+        plt.clf()
     
     def save(self):
         self.global_network.save()
@@ -362,7 +378,7 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue,score_queue,loss_queue):
+            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue,score_queue,loss_queue,mean_loss_queue):
         super().__init__()
         self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
@@ -373,6 +389,7 @@ class Worker(mp.Process):
         self.res_queue = res_queue
         self.score_queue=score_queue
         self.loss_queue=loss_queue
+        self.mean_loss_queue=mean_loss_queue
         self.state_dim = state_dim
         self.action_dim = action_dim
 
@@ -397,7 +414,7 @@ class Worker(mp.Process):
         """
         Initilize Unity environment and start training
         """
-        self.env = UnityEnvironment(file_name="EXE\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
+        self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         # self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
@@ -446,21 +463,21 @@ class Worker(mp.Process):
                     #     action = np.array([[1]])
                     # else:
                     #     action = np.asarray([[action]])
-                    if action==1:
-                        current_score+=1
-                        act=1
-                    elif action==2:
-                        current_score-=1
-                        act=-1
-                    elif action==3:
-                        act=3
-                        col-=1
-                    elif action==4:
-                        act=4
-                        col+=1
-                    if current_score>best_score:
-                        best_score=current_score
-                        beat_high=1
+                    # if action==1:
+                    #     current_score+=1
+                    #     act=1
+                    # elif action==2:
+                    #     current_score-=1
+                    #     act=-1
+                    # elif action==3:
+                    #     act=3
+                    #     col-=1
+                    # elif action==4:
+                    #     act=4
+                    #     col+=1
+                    # if current_score>best_score:
+                    #     best_score=current_score
+                    #     beat_high=1
                     action = np.asarray([[action]])
                     actionTuple.add_discrete(action) ## please give me a INT in a 2d nparray!!
                     
@@ -472,12 +489,11 @@ class Worker(mp.Process):
                 # elif(reward >= 0.1): # moving forward 15 sec
                 #     reward = reward + 0.1
                 # ----------------------------------------
-                if die==1:
-                    reward=-3
-                elif beat_high==1:
-                    reward=10
-                elif act==1:
-                    reward=1-((300-current_score)/100)**0.5
+                if reward==-1:
+                    reward-1
+                elif reward ==1:
+                    reward=3
+                    best_score+=1
                 else:
                     reward=0
                 score += reward
@@ -488,8 +504,7 @@ class Worker(mp.Process):
                     cx = cx.detach()
                     hx = hx.detach()
                     loss = self.local_network.calc_loss(done, (hx, cx))
-                    # if done==True:
-                    #     self.loss_queue.put(loss.detach().numpy())          #record loss
+                    mean_loss=loss
                     loss_value=self.local_network.calc_entropy_loss(done,(hx,cx))
                     self.optimizer.zero_grad()
                     loss.backward(retain_graph=True)
@@ -515,10 +530,12 @@ class Worker(mp.Process):
             self.loss_queue.put(round(loss_value,3))
             self.res_queue.put(round(score,3))
             self.score_queue.put(round(best_score,3))
+            self.mean_loss_queue.put(mean_loss.detach().numpy())
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}, score {best_score}, loss {loss_value}')
         self.res_queue.put(None)
         self.score_queue.put(None)
         self.loss_queue.put(None)
+        self.mean_loss_queue.put(None)
         self.save()
         self.env.close()
 
