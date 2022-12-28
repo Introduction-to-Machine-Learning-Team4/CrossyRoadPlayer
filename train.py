@@ -2,7 +2,7 @@ from model import Agent
 
 def train():
     try:
-        agent = Agent(67, 5)
+        agent = Agent()
         agent.start()
         print('checkpoint1')
         agent.join()
