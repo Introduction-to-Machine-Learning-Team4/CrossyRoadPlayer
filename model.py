@@ -9,7 +9,6 @@ import datetime
 import os
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
 MC = False # TODO: Test true
 TD = not MC
 STATE_SHRINK = False # TODO: Test False
@@ -18,7 +17,7 @@ GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
 
-NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e2                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 10
 
@@ -242,61 +241,46 @@ class Network(nn.Module):
         """
         if not os.path.isdir(f'.\model\{self.timestamp}'):
             os.mkdir(f'.\model\{self.timestamp}')
-        
-        # torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
-        # torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.net_actor.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.net_critic.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
-        # with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.lstm.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
-        #     fh.write("Index \t\t action \t reward:\n")
-        #     for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
-        #         fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+        # Calculate total time
+        end = datetime.datetime.now().replace(second=0, microsecond=0)
+        start = datetime.datetime.strptime(self.timestamp, "%Y-%m-%d-%H-%M-%S")
+        timedelta = end - start
 
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
-            fh.write(f'timestamp: {self.timestamp}\n')
-            fh.write(f'state dimension: {self.state_dim}\n')   # Input dimension
-            fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
+            fh.write(f'Timestamp: {self.timestamp}\n')
+            fh.write(f'Training time: {timedelta}\n')
+            fh.write(f'State dimension: {self.state_dim}\n')   # Input dimension
+            fh.write(f'Action dimension: {self.action_dim}\n') # Output dimension
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
                 fh.write(f'Loss calculation method: MC\n')
             if TD:
                 fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'State shrink: {STATE_SHRINK}')
             fh.write(f'Gradirnt accumulatoin: {GRADIENT_ACC}\n')
             fh.write(f'GAMMA: {GAMMA}\n')
             fh.write(f'LAMBDA: {LAMBDA}\n')
             fh.write(f'Learning rate: {LR}\n')
+            fh.write(f'Iterations: {NUM_GAMES}\n')
             fh.write(f'============================================================\n')
-            fh.write(f'1st onvolution network:\n{self.conv1}\n')
-            fh.write(f'1st onvolution network state dict:\n{self.conv1.state_dict()}\n')
+            fh.write(f'1st convolution network:\n{self.conv1}\n')
+            fh.write(f'1st convolution network state dict:\n{self.conv1.state_dict()}\n')
             fh.write(f'\n-----\n')
-            fh.write(f'2st onvolution network:\n{self.conv2}\n')
-            fh.write(f'2st onvolution network state dict:\n{self.conv2.state_dict()}\n')
+            fh.write(f'2st convolution network:\n{self.conv2}\n')
+            fh.write(f'2st convolution network state dict:\n{self.conv2.state_dict()}\n')
             fh.write(f'\n-----\n')
-            fh.write(f'lstm network:\n{self.lstm}\n')
-            fh.write(f'lstm network state dict:\n{self.lstm.state_dict()}\n')
+            fh.write(f'LSTM network:\n{self.lstm}\n')
+            fh.write(f'LSTM network state dict:\n{self.lstm.state_dict()}\n')
             fh.write(f'\n-----\n')
             # fh.write(f'lstm:\n{self.lstm}\n')
-            fh.write(f'actor network:\n{self.net_actor}\n')
-            fh.write(f'actor network state dict:\n{self.net_actor.state_dict()}\n')
+            fh.write(f'Actor network:\n{self.net_actor}\n')
+            fh.write(f'Actor network state dict:\n{self.net_actor.state_dict()}\n')
             fh.write(f'\n-----\n')
-            fh.write(f'critic network:\n{self.net_critic}\n')
-            fh.write(f'critic network state dict:\n{self.net_critic.state_dict()}\n')
+            fh.write(f'Critic network:\n{self.net_critic}\n')
+            fh.write(f'Critic network state dict:\n{self.net_critic.state_dict()}\n')
 
 class Agent(mp.Process):
     """
