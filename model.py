@@ -19,7 +19,7 @@ GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-4
 
-NUM_GAMES = 1e2                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 10                    # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 5
 
@@ -87,7 +87,6 @@ class Network(nn.Module):
         self.name = name
         self.timestamp = timestamp
 
-        self.distribution = torch.distributions.Normal
 
     def forward(self, state, lstm_par): 
         """
@@ -368,7 +367,7 @@ class Agent(mp.Process):
         
     def save(self):
         # self.global_network.save()
-        torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
+        # torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
         torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_model_state_dict.pt')
 
 class Worker(mp.Process):
