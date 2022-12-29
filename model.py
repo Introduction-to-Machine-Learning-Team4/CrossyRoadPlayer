@@ -298,7 +298,7 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
-            mp.Value('i', 0), mp.Queue(), mp.Queue(), mp.Queue()
+            mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
 
     def close(self):
         """
