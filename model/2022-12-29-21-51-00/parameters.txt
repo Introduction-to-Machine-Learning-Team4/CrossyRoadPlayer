@@ -1,0 +1,21 @@
+Timestamp: 2022-12-29-21-51-00
+Training time: 0:04:00
+State dimension: (4, 5, 21)
+Action dimension: 5
+Maximum training episode for master agent: 1000.0
+Maximum training episode for slave agent: 5
+Loss calculation method: TD
+State shrink: TrueGradirnt accumulatoin: True
+GAMMA: 0.9
+LAMBDA: 0.95
+Learning rate: 0.0001
+Iterations: 1000.0
+============================================================
+Network(
+  (convlstm): ConvLSTMCell(
+    (conv): Conv2d(36, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+  )
+  (flatten): Flatten(start_dim=0, end_dim=-1)
+  (net_actor): Linear(in_features=3360, out_features=5, bias=True)
+  (net_critic): Linear(in_features=3360, out_features=1, bias=True)
+)

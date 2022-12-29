@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
+from ConvLSTMCell import ConvLSTMCell
 from shared_adam import SharedAdam
 import datetime
 import os
@@ -12,7 +13,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 MC = False
 TD = not MC
-STATE_SHRINK = False
+STATE_SHRINK = True
 STATE_DIM = (4, 5, 21) if STATE_SHRINK else (4, 7, 21)
 GRADIENT_ACC = True
 GAMMA  = 0.90
@@ -41,37 +42,49 @@ class Network(nn.Module):
 
         c, h, w = self.state_dim
 
+        self.convlstm = ConvLSTMCell(4, 32, kernel_size=3, bias=False) # if STATE_SHRINK else ConvLSTMCell(4, 32, kernel_size=(2, 2), bias=False) # (input_size, hidden_size)
+
+        self.flatten = nn.Flatten(0, -1)
+   
+        # Actor
+        # FIXME: Adjust the shape for different state size
+        self.net_actor = nn.Linear(32 * 5 * 21, action_dim) if STATE_SHRINK else nn.Linear(32 * 7 * 21, action_dim)
+
+        # Critic
+        # FIXME: Adjust the shape for different state size
+        self.net_critic = nn.Linear(32 * 5 * 21, 1) if STATE_SHRINK else nn.Linear(32 * 7 * 21, 1)
+
         convw = w
         convh = h
         self.linear_input_size = convw * convh * 32
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(c, 16, kernel_size=3, stride=1, padding='same'),
-            nn.BatchNorm2d(16),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding='same'),
-            nn.BatchNorm2d(32),
-            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding='same'),
-            nn.BatchNorm2d(32),
-            nn.Flatten(0,-1),
-        )
+        # self.conv = nn.Sequential(
+        #     nn.Conv2d(c, 16, kernel_size=3, stride=1, padding='same'),
+        #     nn.BatchNorm2d(16),
+        #     nn.Conv2d(16, 32, kernel_size=3, stride=1, padding='same'),
+        #     nn.BatchNorm2d(32),
+        #     nn.Conv2d(32, 32, kernel_size=3, stride=1, padding='same'),
+        #     nn.BatchNorm2d(32),
+        #     nn.Flatten(0,-1),
+        # )
 
-        self.lstm = nn.LSTMCell(self.linear_input_size, self.linear_input_size)
+        # self.lstm = nn.LSTMCell(self.linear_input_size, self.linear_input_size)
 
-        # Actor
-        self.net_actor = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.linear_input_size, self.linear_input_size // 4),
-            nn.ReLU(),
-            nn.Linear(self.linear_input_size // 4, self.action_dim),
-            nn.ReLU()
-        )
+        # # Actor
+        # self.net_actor = nn.Sequential(
+        #     nn.ReLU(),
+        #     nn.Linear(self.linear_input_size, self.linear_input_size // 4),
+        #     nn.ReLU(),
+        #     nn.Linear(self.linear_input_size // 4, self.action_dim),
+        #     nn.ReLU()
+        # )
 
-        # Critic
-        self.net_critic = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.linear_input_size, 1),
-            nn.ReLU()
-        )
+        # # Critic
+        # self.net_critic = nn.Sequential(
+        #     nn.ReLU(),
+        #     nn.Linear(self.linear_input_size, 1),
+        #     nn.ReLU()
+        # )
         self.gamma = gamma
        
         self.states  = np.array([])
@@ -97,12 +110,11 @@ class Network(nn.Module):
             logits -- probability of each action being taken
             value  -- value of critic
         """
-        state = state.reshape(1, 4, 5, 21) if STATE_SHRINK else state.reshape(1, 4, 7, 21)
-        s = self.conv(state)
-        s = s.view(-1, 32 * 5 * 21) if STATE_SHRINK else s.view(-1, 32 * 7 * 21)
-
-        hx, cx = self.lstm(s, lstm_par)
+        s = state.reshape(1, 4, 5, 21) if STATE_SHRINK else state.reshape(1, 4, 7, 21)
+        hx, cx = self.convlstm(s, lstm_par)
         s = hx
+        
+        s = self.flatten(s)
 
         logits = self.net_actor(s)
         value  = self.net_critic(s)
@@ -183,7 +195,6 @@ class Network(nn.Module):
         Monte-Carlo method implementation
         """
         states = torch.tensor(self.states, dtype=torch.float)
-        # print(self.actions)
         actions = torch.tensor(self.actions, dtype=torch.float)
 
         returns, pi, values, (hx, cx)= self.calc_R(done, lstm_par)
@@ -193,7 +204,6 @@ class Network(nn.Module):
         
         probs = torch.softmax(pi, dim=0)
         dist = torch.distributions.Categorical(probs)
-        # print(dist)
 
         # m = self.distribution(mu, sigma)
         # entropy = 0.5 + 0.5 * np.log(2 * np.pi) + torch.log(m.scale)  # exploration
@@ -311,7 +321,7 @@ class Agent(mp.Process):
                                 self.state_dim, self.action_dim, GAMMA, 
                                 self.global_ep, i, self.global_network.timestamp, 
                                 self.res_queue,self.score_queue,self.loss_queue) 
-                                    for i in range(mp.cpu_count() - 15)]
+                                    for i in range(mp.cpu_count() - 2)]
         # parallel training
         [w.start() for w in self.workers]
 
@@ -435,7 +445,8 @@ class Worker(mp.Process):
             while not done:
                 if new_ep:
                     # initialize lstm parameters with zeros
-                    (hx, cx) = (torch.zeros(1, self.local_network.linear_input_size), torch.zeros(1, self.local_network.linear_input_size)) # (batch_size, hidden_size)
+                    (hx, cx) = (torch.zeros(1, 32, 5, 21), torch.zeros(1, 32, 5, 21)) if STATE_SHRINK else (torch.zeros(1, 32, 7, 21), torch.zeros(1, 32, 7, 21)) # (batch_size, hidden_size)
+                    # (hx, cx) = (torch.zeros(1, self.local_network.linear_input_size), torch.zeros(1, self.local_network.linear_input_size)) # (batch_size, hidden_size)
                     # or with random values
                     # (hx, cx) = (torch.radn(1, self.state_dim), torch.radn(1, self.state_dim)) # (batch_size, hidden_size)
                     new_ep = False
