@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import Parameter
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
@@ -10,13 +11,14 @@ from collections import namedtuple, deque
 import random
 import datetime
 
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.9
 EPSILON_PAIR = (0.2, 0.01)
-N_EPOCHS = 10000
+N_EPOCHS = 1
 BATCH_SIZE = 32
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
@@ -52,11 +54,12 @@ class policy(nn.Module):
         self.size = state_dim
         c, h, w = state_dim
         
-        self.conv1 = nn.Conv2d(c, 16, kernel_size=3, stride=1, padding='same')
+        # NOTE: padding manually for ONNX export 
+        self.conv1 = nn.Conv2d(c, 16, kernel_size=3, stride=1)#, padding='same')
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding='same')
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1)#, padding='same')
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding='same')
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)#, padding='same')
         self.bn3 = nn.BatchNorm2d(32)
         
         
@@ -82,9 +85,10 @@ class policy(nn.Module):
     def forward(self, x):
         x = torch.tensor(x, dtype = torch.float32)
         x = x.to(DEVICE)
-        x = self.relu(self.bn1(self.conv1(x)))
-        x = self.relu(self.bn2(self.conv2(x)))
-        x = self.relu(self.bn3(self.conv3(x)))
+        # NOTE: padding manually
+        x = self.relu(self.bn1(F.pad(self.conv1(x),(1, 1, 1, 1))))
+        x = self.relu(self.bn2(F.pad(self.conv2(x),(1, 1, 1, 1))))
+        x = self.relu(self.bn3(F.pad(self.conv3(x),(1, 1, 1, 1))))
         x = self.relu(self.fc1(x.view(x.shape[0], -1)))
         x = self.fc2(x)
         
@@ -107,6 +111,7 @@ class policy(nn.Module):
     def decay_epsilon(self, portion):
         self.epi = self.epi_end + (self.epi_start - self.epi_end) * np.exp(portion * (-3))
         print(self.epi)
+        
 
 def train_DQN(pi, tar_pi, optimizer, memory, n_updates = 1, double = False):
     if (len(memory) < BATCH_SIZE):
@@ -160,7 +165,11 @@ def train_DQN(pi, tar_pi, optimizer, memory, n_updates = 1, double = False):
 def get_state(env, behavior):
     decision_steps, terminal_steps = env.get_steps(behavior)
     
-    if len(terminal_steps) == 0:
+    if len(terminal_steps) != 0:
+        step = terminal_steps[terminal_steps.agent_id[0]]
+        state = None
+        done = True
+    else:
         step = decision_steps[decision_steps.agent_id[0]]
         state = np.array(step.obs)
         state = np.vstack((
@@ -174,16 +183,15 @@ def get_state(env, behavior):
         ))
         state = state.reshape(1, 7, 21)
         done = False
-    else:
-        step = terminal_steps[terminal_steps.agent_id[0]]
-        state = None
-        done = True
+
     return [state, step.reward, done]
 
 def main():
-    env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], worker_id=int(1)) ## work_id need to be int 
+    # Enviroment
+    env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(1),no_graphics = False) ## work_id need to be int 
     env.reset()
     behavior = list(env.behavior_specs)[0]
+    # DQN Nextwork
     pi = policy((1, 7, 21), 5, epsilon_pair = EPSILON_PAIR, gamma = GAMMA)
     pi.to(DEVICE)
     tar_pi = policy((1, 7, 21), 5, epsilon_pair = EPSILON_PAIR, gamma = GAMMA)
@@ -192,6 +200,7 @@ def main():
     optimizer = torch.optim.RMSprop(pi.parameters(), lr = 1e-2)
     memory = ReplayMemory(4000)
     score_rec = 0
+
     
     try:
         best_score_list = []
@@ -200,30 +209,35 @@ def main():
             env.reset()
             state, _, _ = get_state(env, behavior)
             done = False
-            
+
             current_score = 0
             best_score    = 0
 
             while not(done):
-                action = pi.act(state)
-
-                if action == 1:
-                    current_score += 1
-                elif action == 2:
-                    current_score -= 1
-                if current_score > best_score:
-                    best_score = current_score
-                actionTuple = ActionTuple()
-                action_t = np.asarray([[action]])
-                actionTuple.add_discrete(action_t) ## please give me a INT in a 2d nparray!!
-                
-                env.set_actions(behavior, actionTuple)
-                env.step()
+                # Get State
                 next_state, reward, done = get_state(env, behavior)
+                if not done:
+                    # Set Action
+                    action = pi.act(state)
+
+                    if action == 1:
+                        current_score += 1
+                    elif action == 2:
+                        current_score -= 1
+                    if current_score > best_score:
+                        best_score = current_score
+                    actionTuple = ActionTuple()
+                    action_t = np.asarray([[action]])
+                    actionTuple.add_discrete(action_t) ## please give me a INT in a 2d nparray!!
+                    
+                    env.set_actions(behavior, actionTuple)
+                # Update
                 memory.push(state, action, next_state, reward)
                 score += reward
                 state = next_state
                 losses = np.zeros(N_BATCHES_PER_EPOCH)
+                # Next Step
+                env.step()   
                 
             for i in range(N_BATCHES_PER_EPOCH):
                 print(f"train iter {i}")
@@ -242,11 +256,12 @@ def main():
                 os.mkdir(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}')
             if best_score >= 200 and best_score > score_rec:
                 score_rec = best_score
-                torch.save(pi, f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn.pt')
-                # torch.save(pi.state_dict, f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
-
+                # torch.save(pi, f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn.pt')
+                torch.save(pi.state_dict, f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
+            
         env.close()
-
+        env = None
+        
         if not os.path.isdir(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}'):
             os.mkdir(f'\{FOLDER}\{time_stamp}\1-channel-state')
     
@@ -280,10 +295,14 @@ def main():
         plt.xlabel('Step')
         plt.savefig(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\loss.png')
         plt.close()
-    
+
     except Exception as e:
-        env.close()
+        if env != None:
+            env.close()
         raise e
+    
+    finally:
+        torch.save(pi.state_dict, f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
 
 if __name__ == '__main__':
     main()  
