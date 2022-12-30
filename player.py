@@ -10,20 +10,28 @@ import os
 from collections import namedtuple, deque
 import random
 import datetime
-from dqn_1_channel import get_state
-from dqn_1_channel import policy
-from dqn_1_channel import EPSILON_PAIR, GAMMA, FOLDER
 
 TIME_STAMP = "2022-12-27-09-56-00"
 FILE_NAME = "9937_213_dqn"
 PATH = f'.\\{FOLDER}\\1-channel-state\\{TIME_STAMP}\{FILE_NAME}.pt'
+DQN_1 = True
+if DQN_1:
+    CHANNEL = 1
+    from dqn_1_channel import get_state
+    from dqn_1_channel import policy
+    from dqn_1_channel import EPSILON_PAIR, GAMMA, FOLDER
+else :
+    CHANNEL = 4
+    from dqn_4_channel import get_state
+    from dqn_4_channel import policy
+    from dqn_4_channel import EPSILON_PAIR, GAMMA, FOLDER
 
 class Player():
     def __init__(self):
         self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(1),no_graphics = False) ## work_id need to be int 
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
-        self.pi = policy((1, 7, 21), 5, epsilon_pair = EPSILON_PAIR, gamma = GAMMA)
+        self.pi = policy((CHANNEL, 7, 21), 5, epsilon_pair = EPSILON_PAIR, gamma = GAMMA)
         self.pi.load_state_dict(torch.load(PATH))
         self.pi.eval()
     def Play(self):

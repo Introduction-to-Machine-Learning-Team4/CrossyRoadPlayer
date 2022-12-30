@@ -18,7 +18,7 @@ DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.9
 EPSILON_PAIR = (0.2, 0.01)
-N_EPOCHS = 10000
+N_EPOCHS = 2000
 BATCH_SIZE = 32
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
@@ -200,16 +200,16 @@ def main():
     optimizer = torch.optim.RMSprop(pi.parameters(), lr = 1e-2)
     memory = ReplayMemory(4000)
     score_rec = 0
-
     
     try:
         best_score_list = []
         for epi in range(N_EPOCHS):
-            score = 0
             env.reset()
             prev_state, _, _ = get_state(env, behavior)
+            prev_action = None
             done = False
-
+            first = True
+            score = 0
             current_score = 0
             best_score    = 0
 
@@ -232,8 +232,12 @@ def main():
                     
                     env.set_actions(behavior, actionTuple)
                 # Update
-                memory.push(prev_state, action, state, reward)
-                score += reward
+                if not first:
+                    memory.push(prev_state, prev_action, state, reward)
+                    score += reward
+                else: 
+                    first = False
+                prev_action = action
                 prev_state = state
                 losses = np.zeros(N_BATCHES_PER_EPOCH)
                 # Next Step
@@ -296,7 +300,7 @@ def main():
         plt.savefig(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\loss.png')
         plt.close()
 
-        torch.save(pi.state_dict(), f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
+        torch.save(pi.state_dict(), f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\final_dqn_state_dict.pt')
         
     except Exception as e:
         if env != None:
