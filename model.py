@@ -18,9 +18,9 @@ STATE_DIM = (4, 5, 21) if STATE_SHRINK else (4, 7, 21)
 GRADIENT_ACC = True
 GAMMA  = 0.90
 LAMBDA = 0.95
-LR = 1e-4
+LR = 1e-5
 
-NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e4                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 10                    # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 5
 
@@ -41,22 +41,27 @@ class Network(nn.Module):
         self.action_dim = action_dim
 
         c, h, w = self.state_dim
-
-        self.convlstm = ConvLSTMCell(4, 32, kernel_size=3, bias=False) # if STATE_SHRINK else ConvLSTMCell(4, 32, kernel_size=(2, 2), bias=False) # (input_size, hidden_size)
+        
+        self.conv1 = nn.Conv2d(c, 32, kernel_size=3, padding=1) # (in_channels, out_channels)
+        self.conv2 = nn.Conv2d(32, 32, kernel_size=3, padding=1) # (in_channels, out_channels)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, padding=1) # (in_channels, out_channels)
+        self.convlstm = ConvLSTMCell(32, 32, kernel_size=3, bias=False)# (input_size, hidden_size)
 
         self.flatten = nn.Flatten(0, -1)
    
+        self.linear = nn.Linear(32 * h * w, 256)
+
         # Actor
         # FIXME: Adjust the shape for different state size
-        self.net_actor = nn.Linear(32 * 5 * 21, action_dim) if STATE_SHRINK else nn.Linear(32 * 7 * 21, action_dim)
+        self.net_actor = nn.Linear(256, action_dim)
 
         # Critic
         # FIXME: Adjust the shape for different state size
-        self.net_critic = nn.Linear(32 * 5 * 21, 1) if STATE_SHRINK else nn.Linear(32 * 7 * 21, 1)
+        self.net_critic = nn.Linear(256, 1)
 
-        convw = w
-        convh = h
-        self.linear_input_size = convw * convh * 32
+        # convw = w
+        # convh = h
+        # self.linear_input_size = convw * convh * 32
 
         # self.conv = nn.Sequential(
         #     nn.Conv2d(c, 16, kernel_size=3, stride=1, padding='same'),
@@ -110,11 +115,16 @@ class Network(nn.Module):
             logits -- probability of each action being taken
             value  -- value of critic
         """
-        s = state.reshape(1, 4, 5, 21) if STATE_SHRINK else state.reshape(1, 4, 7, 21)
+        c, h, w = self.state_dim
+        s = state.reshape(1, c, h, w)
+        s = self.conv1(s)
+        s = self.conv2(s)
+        s = self.conv3(s)
         hx, cx = self.convlstm(s, lstm_par)
         s = hx
         
         s = self.flatten(s)
+        s = self.linear(s)
 
         logits = self.net_actor(s)
         value  = self.net_critic(s)
@@ -445,7 +455,8 @@ class Worker(mp.Process):
             while not done:
                 if new_ep:
                     # initialize lstm parameters with zeros
-                    (hx, cx) = (torch.zeros(1, 32, 5, 21), torch.zeros(1, 32, 5, 21)) if STATE_SHRINK else (torch.zeros(1, 32, 7, 21), torch.zeros(1, 32, 7, 21)) # (batch_size, hidden_size)
+                    c, h, w = self.state_dim
+                    (hx, cx) = (torch.zeros(1, 32, h, w), torch.zeros(1, 32, h, w)) # (batch_size, hidden_size)
                     # (hx, cx) = (torch.zeros(1, self.local_network.linear_input_size), torch.zeros(1, self.local_network.linear_input_size)) # (batch_size, hidden_size)
                     # or with random values
                     # (hx, cx) = (torch.radn(1, self.state_dim), torch.radn(1, self.state_dim)) # (batch_size, hidden_size)
