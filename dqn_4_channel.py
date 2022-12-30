@@ -16,7 +16,7 @@ DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.9
 EPSILON_PAIR = (0.2, 0.01)
-N_EPOCHS = 10000
+N_EPOCHS = 1000
 BATCH_SIZE = 32
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
@@ -247,19 +247,22 @@ def main():
                 os.mkdir(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}')
             if best_score >= 200 and best_score > score_rec:
                 score_rec = best_score
-                torch.save(pi, f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\{epi}_{best_score}_dqn.pt')
-                # torch.save(pi.state_dict, f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
+                # torch.save(pi, f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\{epi}_{best_score}_dqn.pt')
+                torch.save(pi.state_dict(), f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
         
         env.close()
-
+        env = None
+        
         if not os.path.isdir(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}'):
             os.mkdir(f'\{FOLDER}\{time_stamp}\4-channel-state')
+                
+        torch.save(pi.state_dict(), f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\final_dqn_state_dict.pt')
         
         with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\score.txt', 'w') as fh:
             for i, s in enumerate(best_score_list):
                 fh.write(f"{i}: {s}\n")
 
-        with open(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\loss.txt', 'w') as fh:
+        with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\loss.txt', 'w') as fh:
             for i, s in enumerate(loss_rec):
                 fh.write(f"{i}: {s}\n")
         
@@ -285,9 +288,10 @@ def main():
         plt.xlabel('Step')
         plt.savefig(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\loss.png')
         plt.close()
-
+        
     except Exception as e:
-        env.close()
+        if env != None:
+            env.close()
         raise e
 
 if __name__ == '__main__':
