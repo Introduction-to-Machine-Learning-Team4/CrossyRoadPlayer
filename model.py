@@ -18,8 +18,9 @@ GRADIENT_ACC = True
 GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-4
+NUM_AGENTS = mp.cpu_count() - 15
 
-NUM_GAMES = 1e3                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 5e3                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 10                    # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 5
 
@@ -86,7 +87,6 @@ class Network(nn.Module):
 
         self.name = name
         self.timestamp = timestamp
-
 
     def forward(self, state, lstm_par): 
         """
@@ -255,7 +255,7 @@ class Network(nn.Module):
                 fh.write(f'Loss calculation method: MC\n')
             if TD:
                 fh.write(f'Loss calculation method: TD\n')
-            fh.write(f'State shrink: {STATE_SHRINK}')
+            fh.write(f'State shrink: {STATE_SHRINK}\n')
             fh.write(f'Gradirnt accumulatoin: {GRADIENT_ACC}\n')
             fh.write(f'GAMMA: {GAMMA}\n')
             fh.write(f'LAMBDA: {LAMBDA}\n')
@@ -311,7 +311,7 @@ class Agent(mp.Process):
                                 self.state_dim, self.action_dim, GAMMA, 
                                 self.global_ep, i, self.global_network.timestamp, 
                                 self.res_queue,self.score_queue,self.loss_queue) 
-                                    for i in range(mp.cpu_count() - 15)]
+                                    for i in range(NUM_AGENTS)]
         # parallel training
         [w.start() for w in self.workers]
 
@@ -364,10 +364,20 @@ class Agent(mp.Process):
         plt.close()
 
         self.save()
+
+        with open(f'.\model\{self.time_stamp}\score.txt', 'w') as fh:
+            for s in score:
+                fh.write(f'{s}\n')
+        with open(f'.\model\{self.time_stamp}\loss.txt', 'w') as fh:
+            for l in loss:
+                fh.write(f'{l}\n')
+        with open(f'.\\model\\{self.time_stamp}\\reward.txt', 'w') as fh:
+            for r in res:
+                fh.write(f'{r}\n')
         
     def save(self):
         # self.global_network.save()
-        # torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
+        torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_model.pt')
         torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_model_state_dict.pt')
 
 class Worker(mp.Process):
@@ -391,6 +401,7 @@ class Worker(mp.Process):
         self.loss_queue = loss_queue
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.time_stamp = timestamp
         
     def pull(self):
         """
@@ -504,7 +515,8 @@ class Worker(mp.Process):
                     
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
-                reward = 0.1 * reward if self.l_step > 10 else reward
+                reward = 0.1 * reward if self.l_step < 10 else reward
+                # reward *= 
                 score += reward
                 self.local_network.record(state, action, reward, value.detach())
                 
@@ -550,6 +562,8 @@ class Worker(mp.Process):
             self.res_queue.put(score)
             self.score_queue.put(best_score)
 
+            if best_score > 200:
+                self.save_model(self.g_ep.value, best_score)
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}, score {best_score}')
 
         self.res_queue.put(None)
@@ -563,6 +577,12 @@ class Worker(mp.Process):
         Save the current model
         """
         self.local_network.save()
+
+    def save_model(self, iter, score):        
+        if not os.path.isdir(f'.\model\{self.time_stamp}'):
+            os.mkdir(f'.\model\{self.time_stamp}')
+        # torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_{iter}_{score}_model.pt')
+        torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_{iter}_{score}_model_state_dict.pt')
 
 if __name__ == '__main__':
     None
