@@ -397,6 +397,12 @@ class Agent(mp.Process):
         with open(f'.\\model\\{self.time_stamp}\\reward.txt', 'w') as fh:
             for r in res:
                 fh.write(f'{r}\n')
+        with open(f'.\\model\\{self.time_stamp}\\aloss.txt', 'w') as fh:
+            for r in aloss:
+                fh.write(f'{r}\n')
+        with open(f'.\\model\\{self.time_stamp}\\closs.txt', 'w') as fh:
+            for r in closs:
+                fh.write(f'{r}\n')
         
     def save(self):
         # self.global_network.save()
