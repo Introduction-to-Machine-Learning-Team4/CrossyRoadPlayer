@@ -1,0 +1,38 @@
+Timestamp: 2022-12-31-14-39-00
+Training time: 1:06:00
+State dimension: (4, 7, 21)
+Action dimension: 5
+Maximum training episode for master agent: 1000.0
+Maximum training episode for slave agent: 5
+Loss calculation method: TD
+State shrink: False
+Gradirnt accumulatoin: True
+GAMMA: 0.9
+LAMBDA: 0.95
+Learning rate: 0.0001
+Iterations: 1000.0
+============================================================
+Network(
+  (conv): Sequential(
+    (0): Conv2d(4, 16, kernel_size=(3, 3), stride=(1, 1), padding=same)
+    (1): BatchNorm2d(16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (2): Conv2d(16, 32, kernel_size=(3, 3), stride=(1, 1), padding=same)
+    (3): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (4): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=same)
+    (5): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (6): Flatten(start_dim=0, end_dim=-1)
+  )
+  (lstm): LSTMCell(4704, 4704)
+  (net_actor): Sequential(
+    (0): ReLU()
+    (1): Linear(in_features=4704, out_features=1176, bias=True)
+    (2): ReLU()
+    (3): Linear(in_features=1176, out_features=5, bias=True)
+    (4): ReLU()
+  )
+  (net_critic): Sequential(
+    (0): ReLU()
+    (1): Linear(in_features=4704, out_features=1, bias=True)
+    (2): ReLU()
+  )
+)
