@@ -20,7 +20,7 @@ GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-5
 
-NUM_GAMES = 1e4                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 2e4                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 10                    # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 5
 
