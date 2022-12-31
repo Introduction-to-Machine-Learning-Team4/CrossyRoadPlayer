@@ -18,10 +18,10 @@ STATE_DIM = (4, 5, 21) if STATE_SHRINK else (4, 7, 21)
 GRADIENT_ACC = True
 GAMMA  = 0.90
 LAMBDA = 0.95
-LR = 1e-5
+LR = 1e-4
 
-NUM_GAMES = 2e4                   # Maximum training episode for slave agent to update master agent
-MAX_STEP  = 10                    # Maximum step for slave agent to accumulate gradient
+NUM_GAMES = 2e3                   # Maximum training episode for slave agent to update master agent
+MAX_STEP  = 10 if MC else 1       # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 5
 
 class Network(nn.Module):
@@ -59,37 +59,6 @@ class Network(nn.Module):
         # FIXME: Adjust the shape for different state size
         self.net_critic = nn.Linear(256, 1)
 
-        # convw = w
-        # convh = h
-        # self.linear_input_size = convw * convh * 32
-
-        # self.conv = nn.Sequential(
-        #     nn.Conv2d(c, 16, kernel_size=3, stride=1, padding='same'),
-        #     nn.BatchNorm2d(16),
-        #     nn.Conv2d(16, 32, kernel_size=3, stride=1, padding='same'),
-        #     nn.BatchNorm2d(32),
-        #     nn.Conv2d(32, 32, kernel_size=3, stride=1, padding='same'),
-        #     nn.BatchNorm2d(32),
-        #     nn.Flatten(0,-1),
-        # )
-
-        # self.lstm = nn.LSTMCell(self.linear_input_size, self.linear_input_size)
-
-        # # Actor
-        # self.net_actor = nn.Sequential(
-        #     nn.ReLU(),
-        #     nn.Linear(self.linear_input_size, self.linear_input_size // 4),
-        #     nn.ReLU(),
-        #     nn.Linear(self.linear_input_size // 4, self.action_dim),
-        #     nn.ReLU()
-        # )
-
-        # # Critic
-        # self.net_critic = nn.Sequential(
-        #     nn.ReLU(),
-        #     nn.Linear(self.linear_input_size, 1),
-        #     nn.ReLU()
-        # )
         self.gamma = gamma
        
         self.states  = np.array([])
@@ -225,7 +194,7 @@ class Network(nn.Module):
 
         total_loss = (critic_loss + actor_loss).mean()
     
-        return total_loss
+        return total_loss, actor_loss.mean(), critic_loss.mean()
 
     def calc_loss_v2(self, done):
         """
@@ -249,7 +218,7 @@ class Network(nn.Module):
         
         total_loss = (actor_loss + critic_loss + 0.3 * entropy_loss).mean()
         
-        return total_loss
+        return total_loss, actor_loss, critic_loss
     
     def save(self):
         """
@@ -283,21 +252,7 @@ class Network(nn.Module):
             fh.write(f'Iterations: {NUM_GAMES}\n')
             fh.write(f'============================================================\n')
             fh.write(f'{self}')
-            # fh.write(f'1st convolution network:\n{self.conv1}\n')
-            # fh.write(f'1st convolution network state dict:\n{self.conv1.state_dict()}\n')
-            # fh.write(f'\n-----\n')
-            # fh.write(f'2st convolution network:\n{self.conv2}\n')
-            # fh.write(f'2st convolution network state dict:\n{self.conv2.state_dict()}\n')
-            # fh.write(f'\n-----\n')
-            # fh.write(f'LSTM network:\n{self.lstm}\n')
-            # fh.write(f'LSTM network state dict:\n{self.lstm.state_dict()}\n')
-            # fh.write(f'\n-----\n')
-            # # fh.write(f'lstm:\n{self.lstm}\n')
-            # fh.write(f'Actor network:\n{self.net_actor}\n')
-            # fh.write(f'Actor network state dict:\n{self.net_actor.state_dict()}\n')
-            # fh.write(f'\n-----\n')
-            # fh.write(f'Critic network:\n{self.net_critic}\n')
-            # fh.write(f'Critic network state dict:\n{self.net_critic.state_dict()}\n')
+
 
 class Agent(mp.Process):
     """
@@ -314,8 +269,10 @@ class Agent(mp.Process):
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
-        self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
-            mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
+        self.global_ep, self.res_queue, self.score_queue, self.loss_queue, \
+            self.al_queue, self.cl_queue = \
+                mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), \
+                mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
 
     def close(self):
         """
@@ -330,15 +287,18 @@ class Agent(mp.Process):
         self.workers = [Worker(self.global_network, self.opt, 
                                 self.state_dim, self.action_dim, GAMMA, 
                                 self.global_ep, i, self.global_network.timestamp, 
-                                self.res_queue,self.score_queue,self.loss_queue) 
+                                self.res_queue, self.score_queue,self.loss_queue,
+                                self.al_queue, self.cl_queue) 
                                     for i in range(mp.cpu_count() - 2)]
         # parallel training
         [w.start() for w in self.workers]
 
-        # record episode reward to plot
+        # record episode reward, score and loss to plot
         res   = []
         score = []
         loss  = []
+        aloss = []
+        closs = []
           
         while True:
             r = self.res_queue.get()
@@ -358,6 +318,20 @@ class Agent(mp.Process):
             los = self.loss_queue.get()
             if los is not None:
                 loss.append(los)
+            else:
+                break
+
+        while True:
+            al = self.al_queue.get()
+            if al is not None:
+                aloss.append(al)
+            else:
+                break
+
+        while True:
+            cl = self.cl_queue.get()
+            if cl is not None:
+                closs.append(cl)
             else:
                 break
         
@@ -383,6 +357,18 @@ class Agent(mp.Process):
         plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         plt.close()
 
+        plt.plot(aloss)
+        plt.ylabel('actor loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\\model\\{self.time_stamp}\\aloss.png')
+        plt.close()
+        
+        plt.plot(closs)
+        plt.ylabel('critic loss')
+        plt.xlabel('Step')
+        plt.savefig(f'.\\model\\{self.time_stamp}\\closs.png')
+        plt.close()
+
         self.save()
         
     def save(self):
@@ -395,7 +381,7 @@ class Worker(mp.Process):
     Slave agnet in A3C architecture
     """
     def __init__(self, global_network, optimizer, 
-            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue, score_queue,loss_queue):
+            state_dim, action_dim, gamma, global_ep, name, timestamp, res_queue, score_queue, loss_queue, al_queue, cl_queue):
         super().__init__()
         self.local_network = Network(state_dim, action_dim, gamma=0.95, name=f'woker{name}', timestamp=timestamp)
         self.global_network = global_network
@@ -409,6 +395,8 @@ class Worker(mp.Process):
         self.res_queue = res_queue
         self.score_queue = score_queue
         self.loss_queue = loss_queue
+        self.al_queue = al_queue
+        self.cl_queue = cl_queue
         self.state_dim = state_dim
         self.action_dim = action_dim
         
@@ -431,15 +419,13 @@ class Worker(mp.Process):
         """
         Initilize Unity environment and start training
         """
-        if int(self.name) == 0:
-            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
-        else:
-            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
+        self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
         self.pull()
         self.l_ep = 0
         self.behavior = list(self.env.behavior_specs)[0]
+        BEST_SCORE = 0
 
         while self.g_ep.value < NUM_GAMES:
             new_ep = True
@@ -492,7 +478,7 @@ class Worker(mp.Process):
                 else:
                     step = decision_steps[decision_steps.agent_id[0]]
                     # Add noise
-                    state = np.array(step.obs) + 0.1 * np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < 1000 else np.array(step.obs)  # [:,:49] ## Unity return
+                    state = np.array(step.obs) + 0.1 * np.random.rand(*np.array(step.obs).shape) if self.g_ep.value < NUM_GAMES else np.array(step.obs) ## Unity return
                     # FIXME: Adjust the shape for different state size
                     state = np.vstack((
                         state[126:147],
@@ -526,7 +512,7 @@ class Worker(mp.Process):
                     
                     self.env.set_actions(self.behavior, actionTuple)
                 reward = step.reward ## Unity return
-                reward = 0.1 * reward if self.l_step > 10 else reward
+                reward = 0.1 * reward if self.l_step < 10 else reward
                 score += reward
                 self.local_network.record(state, action, reward, value.detach())
                 
@@ -537,8 +523,12 @@ class Worker(mp.Process):
                         cx = cx.detach()
                         hx = hx.detach()
 
-                        loss = self.local_network.calc_loss(done, (hx, cx))
+                        loss, al_loss, cl_loss = self.local_network.calc_loss(done, (hx, cx))
+
                         self.loss_queue.put(loss.clone().detach().numpy()) #record loss
+                        self.al_queue.put(al_loss.clone().detach().numpy()) #record actor loss
+                        self.cl_queue.put(cl_loss.clone().detach().numpy()) #record critic loss
+                        
                         loss.backward()
 
                     # update global network (gradient accumulation!)
@@ -553,9 +543,13 @@ class Worker(mp.Process):
                         cx = cx.detach()
                         hx = hx.detach()
                         
-                        loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
+                        loss, al_loss, cl_loss = self.local_network.calc_loss(done, (hx, cx)) if MC else self.local_network.calc_loss_v2(done)
                         self.optimizer.zero_grad()
+
                         self.loss_queue.put(loss.clone().detach().numpy()) #record loss
+                        self.al_queue.put(al_loss.clone().detach().numpy()) #record actor loss
+                        self.cl_queue.put(cl_loss.clone().detach().numpy()) #record critic loss
+
                         loss.backward()
                         self.push()   
                         self.optimizer.step()
@@ -572,11 +566,17 @@ class Worker(mp.Process):
             self.res_queue.put(score)
             self.score_queue.put(best_score)
 
+            if best_score > 200 and best_score > BEST_SCORE:
+                self.save_model(self.g_ep.value, best_score)
+                BEST_SCORE = best_score
+
             print(f'Worker {self.name}, episode {self.g_ep.value}, reward {score}, score {best_score}')
 
         self.res_queue.put(None)
         self.score_queue.put(None)
         self.loss_queue.put(None)
+        self.al_queue.put(None)
+        self.cl_queue.put(None)
         self.save()
         self.env.close()
 
@@ -585,6 +585,13 @@ class Worker(mp.Process):
         Save the current model
         """
         self.local_network.save()
+
+    def save_model(self, iter, score):        
+        if not os.path.isdir(f'.\model\{self.time_stamp}'):
+            os.mkdir(f'.\model\{self.time_stamp}')
+        # torch.save(self.global_network, f'.\model\{self.time_stamp}\{self.name}_{iter}_{score}_model.pt')
+        torch.save(self.global_network.state_dict(), f'.\model\{self.time_stamp}\{self.name}_{iter}_{score}_model_state_dict.pt')
+
 
 if __name__ == '__main__':
     None
