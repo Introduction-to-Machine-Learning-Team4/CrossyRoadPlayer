@@ -28,7 +28,7 @@ class Network(nn.Module):
     """
     Neural network components in A3C architecture
     """
-    def __init__(self, state_dim=STATE_DIM, action_dim=5, gamma=0.95, name='test', timestamp=None ,load=False, path_actor='', path_critic=''):
+    def __init__(self, state_dim=STATE_DIM, action_dim=5, gamma=0.95, name='test', timestamp=None ,load=False, path=''):
         """
         Argument:
             state_dim -- dim of state
@@ -87,6 +87,9 @@ class Network(nn.Module):
 
         self.name = name
         self.timestamp = timestamp
+        
+        if load:
+            self.load_state_dict(torch.load(path))
 
     def forward(self, state, lstm_par): 
         """
@@ -278,7 +281,7 @@ class Agent(mp.Process):
         self.time_stamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S")
         self.global_network = Network(state_dim, action_dim, gamma=GAMMA, name='master', 
             timestamp=self.time_stamp,
-            load=False, path_actor='.\model\master_actor.pt', path_critic='.\model\master_critic.pt') # global network
+            load=False, path='.\model\master_actor.pt') # global network
         
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
