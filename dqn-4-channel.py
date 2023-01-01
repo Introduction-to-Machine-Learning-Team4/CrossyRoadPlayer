@@ -16,7 +16,7 @@ DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.9
 EPSILON_PAIR = (0.2, 0.01)
-N_EPOCHS = 10000
+N_EPOCHS = 5000
 BATCH_SIZE = 32
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
@@ -259,7 +259,7 @@ def main():
             for i, s in enumerate(best_score_list):
                 fh.write(f"{i}: {s}\n")
 
-        with open(f'.\\{FOLDER}\\1-channel-state\\{time_stamp}\loss.txt', 'w') as fh:
+        with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\loss.txt', 'w') as fh:
             for i, s in enumerate(loss_rec):
                 fh.write(f"{i}: {s}\n")
         
