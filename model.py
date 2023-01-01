@@ -8,15 +8,16 @@ from shared_adam import SharedAdam
 import datetime
 import os
 
-MC = True
+
+MC = False
 TD = not MC
 STATE_SHRINK = True
 GRADIENT_ACC = True & MC
 GAMMA  = 0.90
 LAMBDA = 0.95
-LR = 1e-3
+LR = 1e-5
 
-NUM_GAMES = 1e6                   # Maximum training episode for slave agent to update master agent
+NUM_GAMES = 1e4                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 100 if MC else 1      # Maximum step for slave agent to accumulate gradient
 MAX_EP    = 10
 
@@ -278,6 +279,7 @@ class Agent(mp.Process):
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
             mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
 
+
     def close(self):
         """
         Close all slave agent created (debugging usage)
@@ -306,19 +308,12 @@ class Agent(mp.Process):
             if r is not None:
                 res.append(r)
             else:
-                break   
+                break  
         
         while True:
             sc = self.score_queue.get()
             if sc is not None:
                 score.append(sc)
-            else:
-                break
-
-        while True:
-            los = self.loss_queue.get()
-            if los is not None:
-                loss.append(los)
             else:
                 break
         [w.join() for w in self.workers]
@@ -341,12 +336,10 @@ class Agent(mp.Process):
         plt.xlabel('Step')
         plt.savefig(f'.\model\{self.time_stamp}\loss.png')
         plt.close()
-
-        self.save() 
-
-    def save(self):
-        self.global_network.save()
-
+        self.save()  
+        
+        
+    
 class Worker(mp.Process):
     """
     Slave agnet in A3C architecture
@@ -388,10 +381,8 @@ class Worker(mp.Process):
         """
         Initilize Unity environment and start training
         """
-        if int(self.name) == 0:
-            self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
-        else:
-            self.env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
+        self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
+
         self.env.reset()
         self.local_network.reset()
         self.pull()
