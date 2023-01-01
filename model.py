@@ -9,7 +9,6 @@ import datetime
 import os
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
 MC = False # TODO: Test true
 TD = not MC
 STATE_SHRINK = False # TODO: Test False
@@ -242,41 +241,25 @@ class Network(nn.Module):
         """
         if not os.path.isdir(f'.\model\{self.timestamp}'):
             os.mkdir(f'.\model\{self.timestamp}')
-        
-        # torch.save(self.net_actor.state_dict(), f'.\model\{self.timestamp}\{self.name}_actor.pt')
-        # torch.save(self.net_critic.state_dict(), f'.\model\{self.timestamp}\{self.name}_critic.pt')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_actor.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.net_actor.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.net_actor.state_dict()[param_tensor].size()}')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_critic.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.net_critic.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.net_critic.state_dict()[param_tensor].size()}')
 
-        # with open(f'.\model\{self.timestamp}\{self.name}_lstm.txt', 'w') as fh:
-        #     fh.write("Model's state_dict:\n")
-        #     for param_tensor in self.lstm.state_dict():
-        #         fh.write(f'{param_tensor} \t {self.lstm.state_dict()[param_tensor].size()}')
-        
-        # with open(f'.\model\{self.timestamp}\{self.name}_record.txt', 'w') as fh:
-        #     fh.write("Index \t\t action \t reward:\n")
-        #     for index, action, reward in zip(range(len(self.rewards)), self.actions, self.rewards):
-        #         fh.write(f'{index:<10} \t {action.squeeze():<10} \t {reward.squeeze():<10}\n')
+        # Calculate total time
+        end = datetime.datetime.now().replace(second=0, microsecond=0)
+        start = datetime.datetime.strptime(self.timestamp, "%Y-%m-%d-%H-%M-%S")
+        timedelta = end - start
 
         # Ouput parameters
         with open(f'.\model\{self.timestamp}\parameters.txt', 'w') as fh:
-            fh.write(f'timestamp: {self.timestamp}\n')
-            fh.write(f'state dimension: {self.state_dim}\n')   # Input dimension
-            fh.write(f'action dimension: {self.action_dim}\n') # Output dimension
+            fh.write(f'Timestamp: {self.timestamp}\n')
+            fh.write(f'Training time: {timedelta}\n')
+            fh.write(f'State dimension: {self.state_dim}\n')   # Input dimension
+            fh.write(f'Action dimension: {self.action_dim}\n') # Output dimension
             fh.write(f'Maximum training episode for master agent: {NUM_GAMES}\n')
             fh.write(f'Maximum training episode for slave agent: {MAX_EP}\n')
             if MC:
                 fh.write(f'Loss calculation method: MC\n')
             if TD:
                 fh.write(f'Loss calculation method: TD\n')
+            fh.write(f'State shrink: {STATE_SHRINK}')
             fh.write(f'Gradirnt accumulatoin: {GRADIENT_ACC}\n')
             fh.write(f'GAMMA: {GAMMA}\n')
             fh.write(f'LAMBDA: {LAMBDA}\n')
@@ -314,7 +297,8 @@ class Agent(mp.Process):
         self.global_network.share_memory() # share the global parameters in multiprocessing
         self.opt = SharedAdam(self.global_network.parameters(), lr=LR, betas=(0.92, 0.999)) # global optimizer
         self.global_ep, self.res_queue, self.score_queue, self.loss_queue = \
-            mp.Value('i', 0), mp.Queue(), mp.Queue(), mp.Queue()
+            mp.Value('i', 0), mp.Manager().Queue(), mp.Manager().Queue(), mp.Manager().Queue()
+
 
     def close(self):
         """
