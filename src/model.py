@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
-from shared_adam import SharedAdam
+from src.shared_adam import SharedAdam
 import datetime
 import os
 
@@ -18,7 +18,7 @@ GRADIENT_ACC = True
 GAMMA  = 0.90
 LAMBDA = 0.95
 LR = 1e-4
-NUM_AGENTS = mp.cpu_count() - 15
+NUM_AGENTS = mp.cpu_count() - 0
 
 NUM_GAMES = 5e3                   # Maximum training episode for slave agent to update master agent
 MAX_STEP  = 10 if MC else 1       # Maximum step for slave agent to accumulate gradient

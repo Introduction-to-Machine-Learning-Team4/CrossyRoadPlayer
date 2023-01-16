@@ -16,7 +16,7 @@ DOUBLE = True
 FOLDER = 'model-ddqn' if DOUBLE else 'model-dqn'
 GAMMA = 0.9
 EPSILON_PAIR = (0.2, 0.01)
-N_EPOCHS = 1000
+N_EPOCHS = 5000
 BATCH_SIZE = 32
 N_UPDATES = 3
 N_BATCHES_PER_EPOCH = 3
@@ -184,7 +184,7 @@ def get_state(env, behavior):
         done = True
     return [state, step.reward, done]
 
-def main():
+def ddqn():
     env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], worker_id=int(3)) ## work_id need to be int 
     env.reset()
     behavior = list(env.behavior_specs)[0]
@@ -251,11 +251,10 @@ def main():
                 torch.save(pi.state_dict(), f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\{epi}_{best_score}_dqn_state_dict.pt')
         
         env.close()
-        env = None
-        
+
         if not os.path.isdir(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}'):
             os.mkdir(f'\{FOLDER}\{time_stamp}\4-channel-state')
-                
+        
         torch.save(pi.state_dict(), f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\final_dqn_state_dict.pt')
         
         with open(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\score.txt', 'w') as fh:
@@ -288,11 +287,10 @@ def main():
         plt.xlabel('Step')
         plt.savefig(f'.\\{FOLDER}\\4-channel-state\\{time_stamp}\loss.png')
         plt.close()
-        
+
     except Exception as e:
-        if env != None:
-            env.close()
+        env.close()
         raise e
 
 if __name__ == '__main__':
-    main()  
+    ddqn()  

@@ -11,12 +11,8 @@ from collections import namedtuple, deque
 import random
 import datetime
 
-# ".\model\2022-12-31-15-46-00\0_1900_370_model_state_dict.pt"
-# TIME_STAMP = "2022-12-31-15-46-00"
-# FILE_NAME = "9937_213_dqn"
-# PATH = f'.\\{FOLDER}\\1-channel-state\\{TIME_STAMP}\{FILE_NAME}.pt'
 PATH = ".\\model\\2022-12-31-15-46-00\\0_1900_370_model_state_dict.pt"
-from model import Network, GAMMA, STATE_DIM, NUM_AGENTS
+from src.model import Network, GAMMA, STATE_DIM, NUM_AGENTS
 
 def get_state(env, behavior):
     decision_steps, terminal_steps = env.get_steps(behavior)
