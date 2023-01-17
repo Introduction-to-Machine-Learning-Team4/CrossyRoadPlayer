@@ -44,7 +44,7 @@ def get_state(env, behavior):
 
 class Player():
     def __init__(self):
-        self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], worker_id=int(1), no_graphics = False) ## work_id need to be int 
+        self.env = UnityEnvironment(file_name="reference/Executable/EXE/Client/CRML", seed=1, side_channels=[], worker_id=int(1), no_graphics = False) ## work_id need to be int 
         self.env.reset()
         self.behavior = list(self.env.behavior_specs)[0]
         self.time_stamp=datetime.datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d-%H-%M-%S")

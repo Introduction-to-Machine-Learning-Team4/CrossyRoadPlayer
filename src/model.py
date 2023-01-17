@@ -460,7 +460,7 @@ class Worker(mp.Process):
         """
         Initilize Unity environment and start training
         """
-        self.env = UnityEnvironment(file_name="EXE\Client\CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
+        self.env = UnityEnvironment(file_name="reference/Executable/EXE/Client/CRML", seed=1, side_channels=[], no_graphics=True, worker_id=int(self.name)) ## work_id need to be int 
         self.env.reset()
         self.local_network.reset()
         self.pull()

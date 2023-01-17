@@ -185,7 +185,7 @@ def get_state(env, behavior):
     return [state, step.reward, done]
 
 def ddqn():
-    env = UnityEnvironment(file_name="EXE\Headless\CRML", seed=1, side_channels=[], worker_id=int(3)) ## work_id need to be int 
+    env = UnityEnvironment(file_name="reference/Executable/EXE/Client/CRML", seed=1, side_channels=[], worker_id=int(3)) ## work_id need to be int 
     env.reset()
     behavior = list(env.behavior_specs)[0]
     pi = policy((4, 7, 21), 5, epsilon_pair = EPSILON_PAIR, gamma = GAMMA)

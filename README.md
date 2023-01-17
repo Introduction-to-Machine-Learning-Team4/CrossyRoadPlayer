@@ -42,21 +42,21 @@ Values of observational space (7 \* 21 GRID)
 
 | Objects   | Value  |
 | --------  | ------ |
-| River	   |    2   |
+| River	    |    2   |
 | Car	      |    1   |
 | Safe Spot	|    0   |
-| Player	   |   -1   |
+| Player	  |   -1   |
 | Boundary	|   -2   |
 
 Values od action space
 
 | Actions    | Value  |
 |  ----      | -----  |
-| Wait       |	0      |
-| Forward    |	1      |
-| Backward   | 2      |
-| Left       |	3      |
-| Right      |	4      |
+| Wait       |	0     |
+| Forward    |	1     |
+| Backward   |  2     |
+| Left       |	3     |
+| Right      |	4     |
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
